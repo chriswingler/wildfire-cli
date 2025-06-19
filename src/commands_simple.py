@@ -1,7 +1,7 @@
 """
-@file commands.py
-@brief Wildfire Discord game command handler
-@details Simplified from BlazeBot, focused on wildfire MMORPG functionality
+@file commands_simple.py
+@brief Simplified wildfire Discord game commands
+@details Direct bot tree commands for reliable sync
 """
 
 import discord
@@ -136,7 +136,7 @@ class WildfireGame:
 
 class WildfireCommands(commands.Cog):
     """
-    @brief Discord commands for wildfire MMORPG
+    @brief Discord event handlers for wildfire MMORPG
     @details Simplified command structure focused on game functionality
     """
     
@@ -148,20 +148,6 @@ class WildfireCommands(commands.Cog):
     async def cog_load(self):
         """Initialize game database when cog loads."""
         await self.game.init_database()
-        
-    async def add_safe_reaction(self, message, emoji):
-        """Safely add reactions with rate limit handling."""
-        try:
-            if self.cooldown.check_reaction(message):
-                await message.add_reaction(emoji)
-                self.cooldown.update_reaction(message)
-        except discord.HTTPException as e:
-            if e.status == 429:
-                retry_after = float(e.response.headers.get('Retry-After', 1.5))
-                await asyncio.sleep(retry_after)
-                await self.add_safe_reaction(message, emoji)
-            else:
-                logging.error(f"Reaction failed: {str(e)}")
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -187,121 +173,13 @@ class WildfireCommands(commands.Cog):
             
         logging.info(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
 
-    # Commands moved to setup() function
-    # async def fire_command(self, interaction: discord.Interaction):
-        """Create new wildfire incident."""
-        fire_data = await self.game.create_fire(interaction.guild.id, interaction.channel.id)
-        
-        embed = discord.Embed(
-            title="🔥 WILDFIRE INCIDENT REPORTED",
-            description=f"New **{fire_data['type']} fire** detected requiring immediate response",
-            color=0xFF4500
-        )
-        
-        embed.add_field(
-            name="📍 Incident Details",
-            value=f"**Fire ID:** `{fire_data['id']}`\n"
-                  f"**Type:** {fire_data['type'].title()} Fire\n"
-                  f"**Size:** {fire_data['size_acres']} acres\n"
-                  f"**Threat Level:** {fire_data['threat_level'].upper()}\n"
-                  f"**Containment:** {fire_data['containment']}%",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🚒 Response Commands",
-            value="• `/respond` - Join the firefighting response team\n"
-                  "• `/firestatus` - Check status of all active incidents\n"
-                  "• `/myrole` - View your current assignments",
-            inline=False
-        )
-        
-        embed.set_footer(text="Incident Command System • Educational Wildfire Simulation")
-        
-        await interaction.response.send_message(embed=embed)
-        await self.add_safe_reaction(interaction.message, "🔥")
-        
-    @discord.app_commands.command(name="respond", description="🚒 Respond to active wildfire incident")
-    async def respond_command(self, interaction: discord.Interaction):
-        """Assign player to active fire."""
-        active_fires = await self.game.get_active_fires(interaction.guild.id)
-        
-        if not active_fires:
-            await interaction.response.send_message(
-                "❌ No active fires requiring response. Use `/fire` to create an incident.",
-                ephemeral=True
-            )
-            return
-            
-        # Assign to first active fire (simplified for prototype)
-        fire = active_fires[0]
-        success = await self.game.assign_responder(
-            fire["id"],
-            interaction.user.id,
-            interaction.user.display_name
-        )
-        
-        if success:
-            embed = discord.Embed(
-                title="✅ RESPONDER ASSIGNED",
-                description=f"{interaction.user.display_name} deployed to **{fire['id']}**",
-                color=0x00AA00
-            )
-            embed.add_field(
-                name="Assignment Details",
-                value=f"**Role:** Firefighter\n"
-                      f"**Fire Type:** {fire['type'].title()}\n"
-                      f"**Current Team Size:** {fire['responder_count'] + 1}",
-                inline=False
-            )
-            await interaction.response.send_message(embed=embed)
-        else:
-            await interaction.response.send_message(
-                "❌ Unable to assign to incident. Try again.",
-                ephemeral=True
-            )
-            
-    @discord.app_commands.command(name="firestatus", description="📊 Check status of active fires")
-    async def status_command(self, interaction: discord.Interaction):
-        """Display current fire status."""
-        active_fires = await self.game.get_active_fires(interaction.guild.id)
-        
-        if not active_fires:
-            await interaction.response.send_message(
-                "📍 No active fires currently. All incidents contained or controlled.",
-                ephemeral=True
-            )
-            return
-            
-        embed = discord.Embed(
-            title="🔥 ACTIVE INCIDENTS STATUS BOARD",
-            description="Current wildfire incidents requiring response",
-            color=0xFF6B35
-        )
-        
-        for fire in active_fires[:6]:  # Limit to 6 fires for embed space
-            status_color = "🟢" if fire["containment"] > 75 else "🟡" if fire["containment"] > 25 else "🔴"
-            
-            embed.add_field(
-                name=f"{status_color} {fire['id'].upper()}",
-                value=f"**Type:** {fire['type'].title()}\n"
-                      f"**Size:** {fire['size_acres']} acres\n"
-                      f"**Containment:** {fire['containment']}%\n"
-                      f"**Responders:** {fire['responder_count']}\n"
-                      f"**Threat:** {fire['threat_level'].upper()}",
-                inline=True
-            )
-            
-        embed.set_footer(text=f"Incident Command System • {len(active_fires)} active incidents")
-        await interaction.response.send_message(embed=embed)
-
 
 async def setup(bot):
     """
     @brief Setup function for wildfire bot
-    @details Initialize and add wildfire commands cog and direct commands
+    @details Initialize and add wildfire commands directly to bot tree
     """
-    # Add cog for event handlers and utilities
+    # Add cog for event handlers and game logic
     cog = WildfireCommands(bot)
     await bot.add_cog(cog)
     
@@ -330,8 +208,7 @@ async def setup(bot):
         embed.add_field(
             name="🚒 Response Commands",
             value="• `/respond` - Join the firefighting response team\n"
-                  "• `/firestatus` - Check status of all active incidents\n"
-                  "• `/myrole` - View your current assignments",
+                  "• `/firestatus` - Check status of all active incidents",
             inline=False
         )
         
@@ -412,4 +289,4 @@ async def setup(bot):
         embed.set_footer(text=f"Incident Command System • {len(active_fires)} active incidents")
         await interaction.response.send_message(embed=embed)
     
-    logging.info("🔥 Wildfire commands cog loaded")
+    logging.info("🔥 Wildfire commands loaded directly to bot tree")

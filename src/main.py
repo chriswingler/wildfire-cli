@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 import asyncio
 import os
 import logging
-from commands import setup
+from commands_simple import setup
 from aiohttp import web
 
 load_dotenv()
