@@ -53,34 +53,32 @@ class TacticalChoicesView(discord.ui.View):
     async def _handle_choice_result(self, interaction, resource_name, result):
         """Handle the result of a tactical choice."""
         if result["success"]:
-            embed = discord.Embed(
-                title=f"🚒 {resource_name} DEPLOYED", 
-                description=f"**Good call, Commander!** {resource_name} en route to fire.",
-                color=0x00AA00
-            )
-            embed.add_field(
-                name="💰 Budget", 
-                value=f"-{result['cost']} pts (Remaining: {result['remaining_budget']})",
-                inline=True
-            )
-            embed.add_field(
-                name="⚡ Next Move", 
-                value="Use `/advance` to see the outcome",
-                inline=True
-            )
+            # Show auto-progression if it happened
+            auto = result.get("auto_progression")
+            auto_message = ""
+            if auto:
+                if auto["points_earned"] > 0:
+                    auto_message = f"\n\n📈 **BONUS: +{auto['points_earned']} pts!** Good work!"
+                else:
+                    auto_message = f"\n\n📉 **URGENT!** Fire spreading - act fast!"
+            
+            message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
+
+**{resource_name} attacking fire immediately!**
+
+💰 **Spent:** -{result['cost']} pts (**{result['remaining_budget']} pts left**)
+{auto_message}
+
+⚡ **Deploy more resources to contain the fire!**"""
         else:
-            embed = discord.Embed(
-                title="❌ DEPLOYMENT FAILED",
-                description=f"**Insufficient budget!** Need {result['cost']} pts, have {result['budget']} pts.",
-                color=0xFF0000
-            )
-            embed.add_field(
-                name="💡 Options",
-                value="• Use `/advance` to progress\n• Try a cheaper resource",
-                inline=False
-            )
+            message = f"""❌ **INSUFFICIENT BUDGET**
+
+**Need {result['cost']} pts, have {result['budget']} pts**
+
+💡 **Good containment = more budget!**
+Try cheaper option 1️⃣ (2 pts)"""
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(message, ephemeral=True)
 
 
 class SingleplayerGame:
@@ -114,7 +112,7 @@ class SingleplayerGame:
             del self.user_states[user_id]
             
     def start_new_scenario(self, user_id, difficulty="moderate"):
-        """Start a new wildfire scenario with realistic simulation."""
+        """Start a new wildfire scenario with automatic progression."""
         user_state = self.get_user_state(user_id)
         
         # Create new fire grid simulation
@@ -123,7 +121,11 @@ class SingleplayerGame:
         user_state["incident_name"] = self.report_generator.generate_incident_name()
         user_state["game_phase"] = "active"
         user_state["last_update"] = datetime.now()
+        user_state["next_progression"] = datetime.now() + timedelta(seconds=45)  # Auto-advance in 45 seconds
         user_state["resources_deployed"] = {"hand_crews": 1, "engines": 1, "air_tankers": 0}
+        user_state["budget"] = 15  # Starting budget
+        user_state["performance_score"] = 100  # Performance rating
+        user_state["actions_taken"] = 0
         
         # Start the fire
         fire_intensity = "low" if difficulty == "easy" else "high" if difficulty == "hard" else "moderate"
@@ -135,10 +137,13 @@ class SingleplayerGame:
         """Deploy additional resources to the incident."""
         user_state = self.get_user_state(user_id)
         
+        # Check for auto-progression first
+        auto_result = self.check_auto_progression(user_id)
+        
         if user_state["game_phase"] != "active":
             return {"success": False, "reason": "no_active_incident"}
             
-        # Resource costs
+        # Resource costs - SPENDING points on resources
         costs = {"hand_crews": 2, "engines": 3, "air_tankers": 5}
         cost = costs.get(resource_type, 2) * count
         
@@ -147,10 +152,100 @@ class SingleplayerGame:
             
         if resource_type in user_state["resources_deployed"]:
             user_state["resources_deployed"][resource_type] += count
-            user_state["budget"] -= cost
-            return {"success": True, "cost": cost, "remaining_budget": user_state["budget"]}
+            user_state["budget"] -= cost  # SPEND points
+            user_state["actions_taken"] += 1
+            
+            # Apply immediate suppression effect
+            self._apply_immediate_suppression(user_state, resource_type, count)
+            
+            return {
+                "success": True, 
+                "cost": cost, 
+                "remaining_budget": user_state["budget"],
+                "auto_progression": auto_result
+            }
         
         return {"success": False, "reason": "invalid_resource"}
+    
+    def check_auto_progression(self, user_id):
+        """Check if fire should automatically progress."""
+        user_state = self.get_user_state(user_id)
+        
+        if user_state["game_phase"] != "active" or not user_state.get("next_progression"):
+            return None
+            
+        if datetime.now() >= user_state["next_progression"]:
+            return self.auto_advance_fire(user_id)
+        
+        return None
+    
+    def auto_advance_fire(self, user_id):
+        """Automatically advance fire and award/deduct points based on performance."""
+        user_state = self.get_user_state(user_id)
+        
+        if not user_state["fire_grid"]:
+            return None
+            
+        # Get stats before progression
+        old_stats = user_state["fire_grid"].get_fire_statistics()
+        
+        # Apply suppression based on deployed resources
+        total_suppression = (
+            user_state["resources_deployed"]["hand_crews"] * 20 +
+            user_state["resources_deployed"]["engines"] * 15 + 
+            user_state["resources_deployed"]["air_tankers"] * 30
+        )
+        
+        user_state["fire_grid"].apply_suppression(total_suppression)
+        user_state["fire_grid"].advance_operational_period()
+        
+        # Get stats after progression
+        new_stats = user_state["fire_grid"].get_fire_statistics()
+        
+        # Calculate performance and award/deduct points
+        containment_improvement = new_stats['containment_percent'] - old_stats['containment_percent']
+        size_growth = new_stats['fire_size_acres'] - old_stats['fire_size_acres']
+        
+        # EARN points for good performance
+        points_earned = 0
+        if containment_improvement > 20:
+            points_earned = 8  # Excellent containment
+        elif containment_improvement > 10:
+            points_earned = 5  # Good progress
+        elif containment_improvement > 0:
+            points_earned = 3  # Some progress
+        else:
+            points_earned = 1  # Minimal progress
+            
+        # Lose points for fire growth
+        if size_growth > 30:
+            points_earned -= 3  # Fire grew significantly
+        elif size_growth > 15:
+            points_earned -= 1  # Some growth
+            
+        user_state["budget"] += max(points_earned, 0)  # EARN points for performance
+        user_state["performance_score"] += points_earned * 2
+        user_state["next_progression"] = datetime.now() + timedelta(seconds=45)  # Next auto-advance
+        
+        # Check if fire is contained or critical
+        if user_state["fire_grid"].is_contained():
+            user_state["game_phase"] = "contained"
+        elif new_stats['fire_size_acres'] >= 200:
+            user_state["game_phase"] = "critical_failure"
+            
+        return {
+            "containment_change": containment_improvement,
+            "size_change": size_growth,
+            "points_earned": points_earned,
+            "new_budget": user_state["budget"],
+            "new_stats": new_stats
+        }
+    
+    def _apply_immediate_suppression(self, user_state, resource_type, count):
+        """Apply immediate suppression effect when resources are deployed."""
+        suppression_values = {"hand_crews": 5, "engines": 7, "air_tankers": 12}
+        immediate_suppression = suppression_values.get(resource_type, 5) * count
+        user_state["fire_grid"].apply_suppression(immediate_suppression)
         
     def advance_operational_period(self, user_id):
         """Advance to next operational period with fire progression."""
@@ -353,34 +448,33 @@ class WildfireCommands(commands.Cog):
     async def _send_choice_response(self, channel, resource_name, result):
         """Send response for typed tactical choice."""
         if result["success"]:
-            embed = discord.Embed(
-                title=f"🚒 {resource_name} DEPLOYED", 
-                description=f"**Roger that, Commander!** {resource_name} responding to incident.",
-                color=0x00AA00
-            )
-            embed.add_field(
-                name="💰 Cost", 
-                value=f"-{result['cost']} pts • **{result['remaining_budget']} pts left**",
-                inline=False
-            )
-            embed.add_field(
-                name="⚡ What's next?", 
-                value="Type `/advance` to see what happens next",
-                inline=False
-            )
+            # Show auto-progression result if it happened
+            auto = result.get("auto_progression")
+            auto_message = ""
+            if auto:
+                if auto["points_earned"] > 0:
+                    auto_message = f"\n\n📈 **PERFORMANCE BONUS: +{auto['points_earned']} pts!**\nContainment improved {auto['containment_change']:.0f}%"
+                else:
+                    auto_message = f"\n\n📉 **FIRE SPREADING!**\nGrew {auto['size_change']:.0f} acres - act fast!"
+            
+            message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
+
+**{resource_name} attacking fire immediately!**
+Suppression effect applied.
+
+💰 **Budget:** -{result['cost']} pts (Remaining: **{result['remaining_budget']} pts**)
+{auto_message}
+
+⚡ **Keep deploying resources to contain the fire!**"""
         else:
-            embed = discord.Embed(
-                title="❌ DEPLOYMENT DENIED",
-                description=f"**Commander, we need more budget!** {resource_name} costs {result['cost']} pts.",
-                color=0xFF0000
-            )
-            embed.add_field(
-                name="💡 Try this",
-                value="• Type `/advance` to get more budget\n• Try option **1** (cheaper)",
-                inline=False
-            )
+            message = f"""❌ **INSUFFICIENT BUDGET**
+
+**Need {result['cost']} pts, have {result['budget']} pts**
+
+💡 **Earn more points with good containment!**
+Try cheaper option **1** (Ground Crews - 2 pts)"""
         
-        await channel.send(embed=embed)
+        await channel.send(message)
         
     @discord.app_commands.command(name="fire", description="Report a new wildfire incident")
     async def fire_command(self, interaction: discord.Interaction):
@@ -673,10 +767,10 @@ class WildfireCommands(commands.Cog):
             interaction.user.id, "initial"
         )
         
-        # Immediate dispatch - drop straight into the fire with interactive choices
-        dispatch_embed = await self._create_dispatch_embed(interaction.user.id)
+        # Immediate dispatch - drop straight into the fire with readable text
+        dispatch_message = await self._create_dispatch_message(interaction.user.id)
         view = TacticalChoicesView(self.singleplayer_game, interaction.user.id)
-        await interaction.response.send_message(embed=dispatch_embed, view=view)
+        await interaction.response.send_message(dispatch_message, view=view)
         
     @discord.app_commands.command(name="stop", description="🛑 End current session (DM only)")
     async def stop_command(self, interaction: discord.Interaction):
@@ -723,10 +817,10 @@ class WildfireCommands(commands.Cog):
             interaction.user.id, "briefing"
         )
         
-        # Send operational briefing as urgent, concise embed with tactical choices
-        briefing_embed = await self._create_operational_embed(interaction.user.id)
+        # Send operational briefing as readable text with tactical choices
+        briefing_message = await self._create_operational_message(interaction.user.id)
         view = TacticalChoicesView(self.singleplayer_game, interaction.user.id)
-        await interaction.response.send_message(embed=briefing_embed, view=view)
+        await interaction.response.send_message(briefing_message, view=view)
         
         # Check if fire is contained
         user_state = self.singleplayer_game.get_user_state(interaction.user.id)
@@ -767,157 +861,113 @@ class WildfireCommands(commands.Cog):
             
         await interaction.response.send_message(f"```{report}```")
         
-    async def _create_dispatch_embed(self, user_id) -> discord.Embed:
-        """Create rich Discord embed for initial dispatch report."""
+    async def _create_dispatch_message(self, user_id) -> str:
+        """Create readable text message for initial dispatch."""
         user_state = self.singleplayer_game.get_user_state(user_id)
         
         if not user_state["fire_grid"]:
-            return discord.Embed(title="❌ Error", description="No active incident", color=0xFF0000)
+            return "❌ **ERROR** - No active incident"
             
         # Get fire statistics and threat data
         stats = user_state["fire_grid"].get_fire_statistics()
         threats = user_state["fire_grid"].get_threat_assessment()
         incident_name = user_state["incident_name"]
         
-        # Create main embed with professional emergency styling
-        embed = discord.Embed(
-            title=f"🚨 INITIAL DISPATCH - {incident_name.upper()}",
-            description="**WILDFIRE INCIDENT ACTIVATION**",
-            color=0xFF4500  # Emergency orange
-        )
+        # Determine threat level styling
+        threat_emoji = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
         
-        # Incident Information
-        embed.add_field(
-            name="📋 INCIDENT DETAILS",
-            value=f"**Name:** {incident_name}\n"
-                  f"**Number:** 2025-{random.randint(6000, 6999)}\n"
-                  f"**IC:** IC-{random.randint(500, 799)}\n"
-                  f"**Reported:** {datetime.now().strftime('%H%M hrs')}", 
-            inline=True
-        )
-        
-        # Fire Situation - Critical Info
-        rate_of_spread = 'Rapid' if stats['active_cells'] > 3 else 'Moderate' if stats['active_cells'] > 1 else 'Slow'
-        fire_behavior = 'Extreme' if stats['weather']['fire_danger'] == 'EXTREME' else 'Active'
-        
-        embed.add_field(
-            name="🔥 FIRE STATUS",
-            value=f"**Size:** {stats['fire_size_acres']} acres\n"
-                  f"**Spread:** {rate_of_spread}\n"
-                  f"**Behavior:** {fire_behavior}\n"
-                  f"**Contained:** {stats['containment_percent']}%",
-            inline=True
-        )
-        
-        # Weather Conditions
-        embed.add_field(
-            name="🌤️ WEATHER",
-            value=f"**Wind:** {stats['weather']['wind_direction']} {stats['weather']['wind_speed']} mph\n"
-                  f"**Temp:** {stats['weather']['temperature']}°F\n"
-                  f"**RH:** {stats['weather']['humidity']}%\n"
-                  f"**Danger:** {stats['weather']['fire_danger']}",
-            inline=True
-        )
-        
-        # Threat Assessment - High visibility
-        threat_color = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
-        embed.add_field(
-            name=f"{threat_color} THREAT ASSESSMENT",
-            value=f"**Structures:** {threats['threatened_structures']} at risk\n"
-                  f"**Level:** {threats['threat_level']}\n"
-                  f"**Evacuations:** {'Recommended' if threats['evacuation_recommended'] else 'None required'}",
-            inline=False
-        )
-        
-        # Initial Tactical Objectives
-        embed.add_field(
-            name="🎯 TACTICAL OBJECTIVES",
-            value="1️⃣ **Life Safety** - Protect firefighters and public\n"
-                  "2️⃣ **Incident Stabilization** - Establish containment\n" 
-                  "3️⃣ **Property Conservation** - Protect structures",
-            inline=False
-        )
-        
-        # Immediate tactical choices
-        embed.add_field(
-            name="⚡ IMMEDIATE DECISIONS",
-            value="**What's your first move, Incident Commander?**\n"
-                  "1️⃣ Deploy ground crews (2 pts)\n"
-                  "2️⃣ Request air support (5 pts)\n" 
-                  "3️⃣ Establish evacuation (3 pts)",
-            inline=False
-        )
-        
-        embed.set_footer(text="Incident Command System • Educational Wildfire Training")
-        embed.timestamp = datetime.now()
-        
-        return embed
+        # Create clear, scannable message
+        message = f"""🚨 **WILDFIRE EMERGENCY** 🚨
+
+**{incident_name.upper()}** is spreading!
+
+🔥 **{stats['fire_size_acres']} acres** • **{stats['containment_percent']}% contained**
+📍 Wind: {stats['weather']['wind_direction']} {stats['weather']['wind_speed']} mph • {stats['weather']['temperature']}°F
+
+{threat_emoji} **{threats['threat_level']} THREAT** - {threats['threatened_structures']} structures at risk
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 **You have {user_state.get('budget', 15)} points** to fight this fire
+*Spend wisely - good containment earns more points!*
+
+**DEPLOY RESOURCES NOW:**
+1️⃣ **Ground Crews** (2 pts) - Fast attack teams
+2️⃣ **Air Support** (5 pts) - Heavy suppression power
+3️⃣ **Engine Company** (3 pts) - Balanced response
+
+🎯 **GOAL:** Contain fire before it reaches 200 acres!
+
+**Click buttons above OR type 1, 2, or 3 to deploy!**"""
+
+        return message
     
-    async def _create_operational_embed(self, user_id) -> discord.Embed:
-        """Create urgent, concise operational briefing embed."""
+    async def _create_operational_message(self, user_id) -> str:
+        """Create readable text message for operational briefing."""
         user_state = self.singleplayer_game.get_user_state(user_id)
         
         if not user_state["fire_grid"]:
-            return discord.Embed(title="❌ No Active Fire", color=0xFF0000)
+            return "❌ **No active fire**"
             
         stats = user_state["fire_grid"].get_fire_statistics()
         threats = user_state["fire_grid"].get_threat_assessment()
         incident_name = user_state["incident_name"]
         
-        # Determine urgency level and color
+        # Determine urgency level
         if stats['fire_size_acres'] > 100:
-            urgency_color = 0xFF0000  # Red - Critical
             urgency_icon = "🚨"
             urgency_text = "CRITICAL"
         elif stats['fire_size_acres'] > 50:
-            urgency_color = 0xFF8C00  # Orange - High
             urgency_icon = "⚠️"
-            urgency_text = "HIGH"
+            urgency_text = "HIGH PRIORITY"
         else:
-            urgency_color = 0xFFD700  # Yellow - Moderate
             urgency_icon = "🔥"
             urgency_text = "ACTIVE"
         
-        embed = discord.Embed(
-            title=f"{urgency_icon} {incident_name.upper()} - {urgency_text}",
-            description=f"**Operational Period {stats.get('operational_period', 2)}**",
-            color=urgency_color
-        )
-        
-        # Fire status - concise and urgent
-        size_change = "📈 GROWING" if stats['active_cells'] > 2 else "📉 Slowing" if stats['active_cells'] == 0 else "🔥 Active"
-        embed.add_field(
-            name="🔥 FIRE STATUS",
-            value=f"**{stats['fire_size_acres']} acres** ({size_change})\n"
-                  f"**{stats['containment_percent']}%** contained",
-            inline=True
-        )
-        
-        # Immediate threat
+        # Fire status trend
+        size_change = "📈 GROWING FAST" if stats['active_cells'] > 2 else "📉 Slowing down" if stats['active_cells'] == 0 else "🔥 Still active"
         threat_emoji = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
-        embed.add_field(
-            name=f"{threat_emoji} THREAT",
-            value=f"**{threats['threatened_structures']}** structures at risk\n"
-                  f"Wind: {stats['weather']['wind_speed']} mph",
-            inline=True
-        )
         
-        # Resource costs and actions
-        embed.add_field(
-            name="⚡ ACTIONS",
-            value="🚒 `/respond` - Deploy crew (2 pts)\n"
-                  f"⏰ `/advance` - Next period\n"
-                  f"💰 Budget: {user_state.get('budget', 10)} pts",
-            inline=False
-        )
+        # Auto-progression timer
+        next_update = user_state.get("next_progression")
+        time_left = ""
+        if next_update:
+            seconds_left = max(0, int((next_update - datetime.now()).total_seconds()))
+            time_left = f"⏰ **Auto-update in {seconds_left} seconds**"
         
-        # Goal reminder
-        if stats['containment_percent'] < 100:
-            embed.set_footer(text="🎯 GOAL: Contain fire before it reaches 200 acres")
+        # Check if contained
+        if stats['containment_percent'] >= 100:
+            message = f"""🎉 **FIRE CONTAINED!** 🎉
+
+**{incident_name.upper()}** has been successfully contained!
+
+🔥 **Final size:** {stats['fire_size_acres']} acres
+✅ **100% contained**
+
+**Excellent work, Incident Commander!**
+Use `/stop` to see your performance report."""
         else:
-            embed.set_footer(text="🎉 FIRE CONTAINED - Use /stop for results")
-            
-        return embed
+            message = f"""{urgency_icon} **{incident_name.upper()}** - {urgency_text}
+
+🔥 **{stats['fire_size_acres']} acres** ({size_change})
+📊 **{stats['containment_percent']}% contained**
+
+{threat_emoji} **{threats['threat_level']} threat** • Wind: {stats['weather']['wind_speed']} mph
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 **Budget: {user_state.get('budget', 10)} points**
+
+**DEPLOY MORE RESOURCES:**
+1️⃣ Ground Crews (2 pts)
+2️⃣ Air Support (5 pts) 
+3️⃣ Engines (3 pts)
+
+{time_left}
+
+🎯 **Contain before 200 acres!**"""
+        
+        return message
 
 
 async def setup_wildfire_commands(bot):
