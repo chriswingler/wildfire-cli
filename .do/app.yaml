@@ -1,0 +1,53 @@
+# DigitalOcean App Platform Configuration
+# Deploys wildfire Discord bot directly from GitHub repo
+
+name: wildfire-discord-bot
+services:
+- name: wildfire-bot
+  source_dir: /
+  github:
+    repo: chriswingler/wildfire-cli
+    branch: main
+    deploy_on_push: true
+  
+  # Python runtime configuration
+  run_command: cd src && python main.py
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  
+  # Environment variables
+  envs:
+  - key: DISCORD_TOKEN
+    scope: RUN_TIME
+    type: SECRET
+  - key: LOG_LEVEL
+    value: INFO
+    scope: RUN_TIME
+    type: GENERAL
+  
+  # Health check
+  health_check:
+    initial_delay_seconds: 10
+    period_seconds: 10
+    timeout_seconds: 5
+    success_threshold: 1
+    failure_threshold: 3
+  
+  # Resource limits
+  cpu_count: 0.5
+  memory: 512MB
+  
+# Static files (if needed for web dashboard later)
+static_sites: []
+
+# Database (SQLite runs in container, but ready for managed DB)
+databases: []
+
+# Domain configuration (optional)
+domains: []
+
+# Alerts
+alerts:
+- rule: DEPLOYMENT_FAILED
+- rule: DOMAIN_FAILED

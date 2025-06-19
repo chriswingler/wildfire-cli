@@ -1,29 +1,64 @@
 # 🔥 Discord Wildfire MMORPG - Standalone Bot Deployment
 
-## ⚡ Quick Start (5 Minutes)
+## ⚡ Quick Start - Choose Your Deployment
 
-### Step 1: Install Dependencies
+### 🔥 Option 1: DigitalOcean App Platform (Recommended - 2 Minutes)
+
+**One-Command Cloud Deployment:**
 ```bash
-# Install required packages
+# Deploy directly from GitHub to DigitalOcean cloud
+./deploy.sh
+```
+
+**What it does:**
+- ✅ Deploys from your GitHub repo automatically
+- ✅ Sets up 24/7 hosting on DigitalOcean ($5/month)
+- ✅ Handles scaling and updates automatically
+- ✅ Professional production environment
+
+### 🖥️ Option 2: Local Development (5 Minutes)
+
+**Run locally for testing:**
+```bash
+# 1. Install dependencies
 pip install -r requirements.txt
-```
 
-### Step 2: Configure Bot Token
-```bash
-# Copy environment template
+# 2. Configure bot token
 cp .env.example .env
+# Edit .env with your Discord bot token
 
-# Edit .env and add your Discord bot token
-# Get token from: https://discord.com/developers/applications
-```
-
-### Step 3: Run the Wildfire Bot
-```bash
-# Run the standalone wildfire Discord bot
+# 3. Run locally
 python src/main.py
 ```
 
-### Step 4: Test Commands
+## 🔧 DigitalOcean Setup Details
+
+### Prerequisites
+1. **GitHub Account**: Your code repository
+2. **DigitalOcean Account**: Sign up at digitalocean.com
+3. **Discord Bot**: Create at discord.com/developers/applications
+
+### Deployment Steps
+```bash
+# 1. Clone your repo (if not already)
+git clone https://github.com/yourusername/wildfire-cli
+cd wildfire-cli
+
+# 2. Run deployment script
+./deploy.sh
+
+# 3. Add Discord token in DigitalOcean dashboard
+# Go to: https://cloud.digitalocean.com/apps
+# Add DISCORD_TOKEN in Environment Variables
+```
+
+### After Deployment
+- **Bot URL**: Visible in DigitalOcean Apps dashboard
+- **Logs**: `doctl apps logs YOUR_APP_ID --type run`
+- **Cost**: ~$5/month for basic tier
+- **Scaling**: Automatic based on usage
+
+## 🎮 Test Commands
 In your Discord server:
 - `/fire` - Creates a new wildfire incident
 - `/respond` - Join the fire response team  
