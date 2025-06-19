@@ -567,8 +567,9 @@ class WildfireCommands(commands.Cog):
         
         await interaction.response.send_message(embed=intro_embed)
         
-        # Send the initial dispatch report in a follow-up message
-        await interaction.followup.send(f"```{initial_report}```")
+        # Send the initial dispatch report as a rich embed
+        dispatch_embed = await self._create_dispatch_embed(interaction.user.id)
+        await interaction.followup.send(embed=dispatch_embed)
         
     @discord.app_commands.command(name="stop", description="🛑 End current session (DM only)")
     async def stop_command(self, interaction: discord.Interaction):
@@ -655,6 +656,91 @@ class WildfireCommands(commands.Cog):
             return
             
         await interaction.response.send_message(f"```{report}```")
+        
+    async def _create_dispatch_embed(self, user_id) -> discord.Embed:
+        """Create rich Discord embed for initial dispatch report."""
+        user_state = self.singleplayer_game.get_user_state(user_id)
+        
+        if not user_state["fire_grid"]:
+            return discord.Embed(title="❌ Error", description="No active incident", color=0xFF0000)
+            
+        # Get fire statistics and threat data
+        stats = user_state["fire_grid"].get_fire_statistics()
+        threats = user_state["fire_grid"].get_threat_assessment()
+        incident_name = user_state["incident_name"]
+        
+        # Create main embed with professional emergency styling
+        embed = discord.Embed(
+            title=f"🚨 INITIAL DISPATCH - {incident_name.upper()}",
+            description="**WILDFIRE INCIDENT ACTIVATION**",
+            color=0xFF4500  # Emergency orange
+        )
+        
+        # Incident Information
+        embed.add_field(
+            name="📋 INCIDENT DETAILS",
+            value=f"**Name:** {incident_name}\n"
+                  f"**Number:** 2025-{random.randint(6000, 6999)}\n"
+                  f"**IC:** IC-{random.randint(500, 799)}\n"
+                  f"**Reported:** {datetime.now().strftime('%H%M hrs')}", 
+            inline=True
+        )
+        
+        # Fire Situation - Critical Info
+        rate_of_spread = 'Rapid' if stats['active_cells'] > 3 else 'Moderate' if stats['active_cells'] > 1 else 'Slow'
+        fire_behavior = 'Extreme' if stats['weather']['fire_danger'] == 'EXTREME' else 'Active'
+        
+        embed.add_field(
+            name="🔥 FIRE STATUS",
+            value=f"**Size:** {stats['fire_size_acres']} acres\n"
+                  f"**Spread:** {rate_of_spread}\n"
+                  f"**Behavior:** {fire_behavior}\n"
+                  f"**Contained:** {stats['containment_percent']}%",
+            inline=True
+        )
+        
+        # Weather Conditions
+        embed.add_field(
+            name="🌤️ WEATHER",
+            value=f"**Wind:** {stats['weather']['wind_direction']} {stats['weather']['wind_speed']} mph\n"
+                  f"**Temp:** {stats['weather']['temperature']}°F\n"
+                  f"**RH:** {stats['weather']['humidity']}%\n"
+                  f"**Danger:** {stats['weather']['fire_danger']}",
+            inline=True
+        )
+        
+        # Threat Assessment - High visibility
+        threat_color = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
+        embed.add_field(
+            name=f"{threat_color} THREAT ASSESSMENT",
+            value=f"**Structures:** {threats['threatened_structures']} at risk\n"
+                  f"**Level:** {threats['threat_level']}\n"
+                  f"**Evacuations:** {'Recommended' if threats['evacuation_recommended'] else 'None required'}",
+            inline=False
+        )
+        
+        # Initial Tactical Objectives
+        embed.add_field(
+            name="🎯 TACTICAL OBJECTIVES",
+            value="1️⃣ **Life Safety** - Protect firefighters and public\n"
+                  "2️⃣ **Incident Stabilization** - Establish containment\n" 
+                  "3️⃣ **Property Conservation** - Protect structures",
+            inline=False
+        )
+        
+        # Next Actions
+        embed.add_field(
+            name="⚡ IMMEDIATE ACTIONS",
+            value="• Use `/respond` to deploy additional resources\n"
+                  "• Use `/firestatus` for detailed situation reports\n"
+                  "• Use `/advance` when ready for next operational period",
+            inline=False
+        )
+        
+        embed.set_footer(text="Incident Command System • Educational Wildfire Training")
+        embed.timestamp = datetime.now()
+        
+        return embed
 
 
 async def setup_wildfire_commands(bot):
