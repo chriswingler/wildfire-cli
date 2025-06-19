@@ -158,10 +158,14 @@ class WildfireCommands(commands.Cog):
         commands_in_tree = [cmd.name for cmd in self.bot.tree.get_commands()]
         logging.info(f"🔥 Commands in tree: {commands_in_tree}")
         
-        # Sync commands to guilds
+        # Copy global commands to each guild then sync
         try:
             total_synced = 0
             for guild in self.bot.guilds:
+                # Copy global commands to this guild
+                self.bot.tree.copy_global_to(guild=guild)
+                
+                # Now sync guild-specific commands (includes copied globals)
                 synced = await self.bot.tree.sync(guild=guild)
                 total_synced += len(synced)
                 logging.info(f"🔥 Synced {len(synced)} commands to guild {guild.name}")
