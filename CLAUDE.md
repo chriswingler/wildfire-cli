@@ -307,6 +307,55 @@ gh issue comment 19 "Sprint 3: 25+ story points delivered (exceeded capacity)"
 gh milestone create "Sprint 4" --due-date 2025-07-01 --description "Enhanced Multiplayer"
 ```
 
+### GitHub Project Board Creation & Management
+
+**Repository-Level Project Setup (Completed):**
+- **Project:** Wildfire CLI Kanban Board (Project #5)
+- **URL:** https://github.com/users/chriswingler/projects/5
+- **Repository Link:** ✅ Confirmed appearing in wildfire-cli/projects tab
+
+**GitHub CLI Commands for Repository Projects:**
+```bash
+# Create repository-linked project
+gh project create --owner chriswingler --title "Project Name"
+
+# Link project to repository (critical for repo Projects tab visibility)
+gh project link PROJECT_NUMBER --owner chriswingler --repo chriswingler/wildfire-cli
+
+# Add issues to project
+gh project item-add PROJECT_NUMBER --owner chriswingler --url https://github.com/chriswingler/wildfire-cli/issues/ISSUE_NUMBER
+
+# List projects for user
+gh project list --owner chriswingler
+
+# View project details
+gh project view PROJECT_NUMBER --owner chriswingler
+
+# Verify repository integration via GraphQL
+gh api graphql -f query='{ repository(owner: "chriswingler", name: "wildfire-cli") { projectsV2(first: 10) { nodes { id number title url } } } }'
+```
+
+**Key Lessons Learned:**
+1. **GitHub Projects V2 are user/org-level** by default, not repository-level
+2. **Repository linking is separate step** - use `gh project link` command
+3. **User projects don't appear in repo Projects tab** without explicit linking
+4. **GraphQL createProjectV2 with repository node ID fails** - use GitHub CLI instead
+5. **GitHub CLI project commands are more reliable** than direct GraphQL for repo integration
+
+**Project Management Workflow:**
+```bash
+# Complete repository project setup workflow
+PROJECT_NUM=$(gh project create --owner chriswingler --title "New Project" --format json | jq -r '.number')
+gh project link $PROJECT_NUM --owner chriswingler --repo chriswingler/wildfire-cli
+gh project item-add $PROJECT_NUM --owner chriswingler --url https://github.com/chriswingler/wildfire-cli/issues/ISSUE_NUM
+```
+
+**Current Active Project:**
+- **Project #5:** Wildfire CLI Kanban Board
+- **Issues Added:** Sprint 4 (#22, #23, #24), Epic #20, completed items
+- **Integration:** Full kanban workflow with existing label system
+- **Status:** Ready for Sprint 4 execution with visual project management
+
 ### Bot Features Live
 ✅ **Complete Fire Simulation** - Cellular automata engine with realistic behavior (Sprint 3)
 ✅ **Professional ICS Reports** - Authentic incident command documentation (Sprint 3)  
