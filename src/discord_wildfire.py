@@ -24,7 +24,7 @@ class TacticalChoicesView(discord.ui.View):
         self.singleplayer_game = singleplayer_game
         self.user_id = user_id
     
-    @discord.ui.button(label='1️⃣ Ground Crews - Fast Attack ($4,600)', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
+    @discord.ui.button(label='1️⃣ Ground Crews - Fast Attack ($1,800)', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
     async def deploy_crews(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -42,7 +42,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "air_tankers", 1)
         await self._handle_choice_result(interaction, "Air Support", result)
     
-    @discord.ui.button(label='3️⃣ Engine Company - Balanced ($1,800)', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
+    @discord.ui.button(label='3️⃣ Engine Company - Balanced ($3,200)', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
     async def deploy_engines(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -51,7 +51,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "engines", 1)
         await self._handle_choice_result(interaction, "Engine Company", result)
     
-    @discord.ui.button(label='4️⃣ Dozer - Firebreak Builder ($3,200)', style=discord.ButtonStyle.danger, custom_id='deploy_dozers')
+    @discord.ui.button(label='4️⃣ Dozer - Firebreak Builder ($4,600)', style=discord.ButtonStyle.danger, custom_id='deploy_dozers')
     async def deploy_dozers(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -97,15 +97,42 @@ class TacticalChoicesView(discord.ui.View):
 
 **Continue fighting the fire:**"""
                 
-                # Create new tactical choices view
-                view = TacticalChoicesView(self.singleplayer_game, self.user_id)
+                # Check if user can afford any resources before showing choices
+                user_state = self.singleplayer_game.get_user_state(self.user_id)
+                current_budget = user_state["budget"]
+                min_cost = min([1800, 3200, 4600, 12000])  # hand_crews is cheapest
                 
-                # Use defer + followup for clean DM conversation (no reply chains)
-                if interaction.guild is None:
-                    await interaction.response.defer()
-                    await interaction.followup.send(message, view=view)
+                if current_budget < min_cost:
+                    # Game over - can't afford any resources
+                    game_over_message = f"""💥 **GAME OVER - INSUFFICIENT FUNDING!**
+
+🔥 **FINAL SITUATION:**
+• **Fire Size:** {stats['fire_size_acres']} acres
+• **Containment:** {stats['containment_percent']}%
+• **Budget Remaining:** ${current_budget:,}
+
+🎯 **RESULT:** Unable to deploy additional resources. Fire continues to spread unchecked.
+
+**💡 Lesson Learned:** Budget management is critical in incident command!
+
+**🚀 Use `/start` to try again with better resource allocation!**"""
+                    
+                    # Use defer + followup for clean DM conversation (no reply chains)  
+                    if interaction.guild is None:
+                        await interaction.response.defer()
+                        await interaction.followup.send(game_over_message)
+                    else:
+                        await interaction.response.send_message(game_over_message)
                 else:
-                    await interaction.response.send_message(message, view=view)
+                    # Create new tactical choices view
+                    view = TacticalChoicesView(self.singleplayer_game, self.user_id)
+                    
+                    # Use defer + followup for clean DM conversation (no reply chains)
+                    if interaction.guild is None:
+                        await interaction.response.defer()
+                        await interaction.followup.send(message, view=view)
+                    else:
+                        await interaction.response.send_message(message, view=view)
             else:
                 # Game over - no more budget
                 user_state = self.singleplayer_game.get_user_state(self.user_id)
@@ -148,7 +175,7 @@ class TacticalChoicesView(discord.ui.View):
 • **Containment:** {stats['containment_percent']}%
 • **Threat:** {threat_emoji} {threats['threat_level']}
 
-💰 **Budget:** ${user_state.get('budget', 10000):,} remaining
+💰 **Budget:** ${user_state.get('budget', 20000):,} remaining
 
 **Continue fighting the fire:**"""
             
@@ -247,7 +274,7 @@ class SingleplayerGame:
                 "operational_period": 1,
                 "last_update": datetime.now(),
                 "game_phase": "ready",  # ready, active, contained, completed
-                "budget": 10000,  # Starting resource budget in dollars
+                "budget": 20000,  # Starting resource budget in dollars
                 "score": 0  # Performance score
             }
         return self.user_states[user_id]
@@ -269,7 +296,7 @@ class SingleplayerGame:
         user_state["last_update"] = datetime.now()
         user_state["next_progression"] = datetime.now() + timedelta(seconds=45)  # Auto-advance in 45 seconds
         user_state["resources_deployed"] = {"hand_crews": 1, "engines": 1, "air_tankers": 0, "dozers": 0}
-        user_state["budget"] = 10000  # Starting budget in dollars
+        user_state["budget"] = 20000  # Starting budget in dollars
         user_state["performance_score"] = 100  # Performance rating
         user_state["actions_taken"] = 0
         
@@ -293,7 +320,7 @@ class SingleplayerGame:
         old_stats = user_state["fire_grid"].get_fire_statistics() if user_state["fire_grid"] else None
             
         # Resource costs - SPENDING dollars on resources (daily rates)
-        costs = {"hand_crews": 4600, "engines": 1800, "air_tankers": 12000, "dozers": 3200}
+        costs = {"hand_crews": 1800, "engines": 3200, "dozers": 4600, "air_tankers": 12000}
         cost = costs.get(resource_type, 2) * count
         
         if user_state["budget"] < cost:
@@ -1172,13 +1199,13 @@ class WildfireCommands(commands.Cog):
 • **Urgency:** {"🟢 MANAGEABLE" if stats['fire_size_acres'] <= 50 else "🟡 CRITICAL" if stats['fire_size_acres'] <= 100 else "🔴 EMERGENCY"}
 
 
-💰 **Budget:** ${user_state.get('budget', 10000):,}
+💰 **Budget:** ${user_state.get('budget', 20000):,}
 *Good containment earns more funding!*
 
 
 **TACTICAL DEPLOYMENT OPTIONS:**
 
-1️⃣ **Ground Crews** ($4,600) - **PRECISION SPECIALISTS**
+1️⃣ **Ground Crews** ($1,800) - **PRECISION SPECIALISTS**
    • +50% effective on fires ≤30 acres
    • Weather independent, all-terrain capable
    • Best for: Initial attack, small fires
@@ -1188,12 +1215,12 @@ class WildfireCommands(commands.Cog):
    • ⚠️ GROUNDED if winds >20mph
    • Best for: Large fires, calm weather
 
-3️⃣ **Engine Company** ($1,800) - **RELIABLE WORKHORSE**
+3️⃣ **Engine Company** ($3,200) - **RELIABLE WORKHORSE**
    • +40% effective on 30-100 acre fires
    • Weather independent, sustained operations
    • Best for: Medium fires, structure protection
 
-4️⃣ **Dozer** ($3,200) - **PREVENTION MASTER**
+4️⃣ **Dozer** ($4,600) - **PREVENTION MASTER**
    • +60% effective for containment lines
    • Most effective on fires ≤60 acres
    • Best for: Building firebreaks, prevention
@@ -1259,14 +1286,14 @@ Use `/stop` to see your performance report."""
 • **Threat:** {threat_emoji} {threats['threat_level']} - Wind: {stats['weather']['wind_speed']} mph
 
 
-💰 **Budget:** ${user_state.get('budget', 10000):,}
+💰 **Budget:** ${user_state.get('budget', 20000):,}
 
 
 **TACTICAL OPTIONS:**
-1️⃣ **Ground Crews** ($4,600) - Fast attack
+1️⃣ **Ground Crews** ($1,800) - Fast attack
 2️⃣ **Air Support** ($12,000) - Heavy power 
-3️⃣ **Engine Company** ($1,800) - Balanced
-4️⃣ **Dozer** ($3,200) - Firebreaks
+3️⃣ **Engine Company** ($3,200) - Balanced
+4️⃣ **Dozer** ($4,600) - Firebreaks
 
 {time_left}
 
