@@ -63,29 +63,27 @@ class TacticalChoicesView(discord.ui.View):
                 else:
                     auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
             
-            # Get tactical recommendations
+            # Get current fire status after deployment
             user_state = self.singleplayer_game.get_user_state(self.user_id)
             stats = user_state["fire_grid"].get_fire_statistics()
+            threats = user_state["fire_grid"].get_threat_assessment()
             
-            # Tactical recommendation based on fire size
-            if stats['fire_size_acres'] > 50:
-                tactical_advice = "🚁 **TACTICAL ADVICE:** Large fire - Air Support most effective!"
-            elif stats['fire_size_acres'] < 30:
-                tactical_advice = "🚒 **TACTICAL ADVICE:** Small fire - Ground Crews cost-effective!"
-            else:
-                tactical_advice = "🚒 **TACTICAL ADVICE:** Balanced approach - Engine Company recommended!"
+            threat_emoji = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
             
             message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
-**Immediate suppression effect applied!**
-{resource_name} is attacking the fire right now.
 
-💰 **Budget:** -{result['cost']} pts → **{result['remaining_budget']} pts remaining**
+🔥 **CURRENT FIRE STATUS:**
+• **Size:** {stats['fire_size_acres']} acres
+• **Containment:** {stats['containment_percent']}%
+• **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
+
+
+💰 **Budget:** {result['remaining_budget']} points remaining
 {auto_message}
 
-{tactical_advice}
 
-**Deploy more resources to increase containment:**"""
+**Continue fighting the fire:**"""
             
             # Create new tactical choices view
             view = TacticalChoicesView(self.singleplayer_game, self.user_id)
@@ -483,29 +481,27 @@ class WildfireCommands(commands.Cog):
                 else:
                     auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
             
-            # Get tactical recommendations
+            # Get current fire status after deployment
             user_state = self.singleplayer_game.get_user_state(user_id)
             stats = user_state["fire_grid"].get_fire_statistics()
+            threats = user_state["fire_grid"].get_threat_assessment()
             
-            # Tactical recommendation based on fire size
-            if stats['fire_size_acres'] > 50:
-                tactical_advice = "🚁 **TACTICAL ADVICE:** Large fire - Air Support most effective!"
-            elif stats['fire_size_acres'] < 30:
-                tactical_advice = "🚒 **TACTICAL ADVICE:** Small fire - Ground Crews cost-effective!"
-            else:
-                tactical_advice = "🚒 **TACTICAL ADVICE:** Balanced approach - Engine Company recommended!"
+            threat_emoji = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
             
             message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
-**Immediate suppression effect applied!**
-{resource_name} is attacking the fire right now.
 
-💰 **Budget:** -{result['cost']} pts → **{result['remaining_budget']} pts remaining**
+🔥 **CURRENT FIRE STATUS:**
+• **Size:** {stats['fire_size_acres']} acres
+• **Containment:** {stats['containment_percent']}%
+• **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
+
+
+💰 **Budget:** {result['remaining_budget']} points remaining
 {auto_message}
 
-{tactical_advice}
 
-**Deploy more resources to increase containment:**"""
+**Continue fighting the fire:**"""
             
             # Create new tactical choices view
             view = TacticalChoicesView(self.singleplayer_game, user_id)
@@ -926,15 +922,17 @@ Try **Ground Crews** (2 pts) - most cost-effective option."""
 
 **{incident_name.upper()}** is spreading!
 
-🔥 **{stats['fire_size_acres']} acres** • **{stats['containment_percent']}% contained**
-📍 Wind: {stats['weather']['wind_direction']} {stats['weather']['wind_speed']} mph • {stats['weather']['temperature']}°F
 
-{threat_emoji} **{threats['threat_level']} THREAT** - {threats['threatened_structures']} structures at risk
+🔥 **FIRE STATUS:**
+• **Size:** {stats['fire_size_acres']} acres
+• **Containment:** {stats['containment_percent']}%
+• **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
+• **Weather:** {stats['weather']['wind_direction']} {stats['weather']['wind_speed']} mph, {stats['weather']['temperature']}°F
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💰 **You have {user_state.get('budget', 15)} points** to fight this fire
-*Spend wisely - good containment earns more points!*
+💰 **Budget:** {user_state.get('budget', 15)} points
+*Good containment earns more points!*
+
 
 **TACTICAL DEPLOYMENT OPTIONS:**
 
@@ -949,6 +947,7 @@ Try **Ground Crews** (2 pts) - most cost-effective option."""
 3️⃣ **Engine Company** (3 pts) - **BALANCED OPTION**
    • Moderate cost, reliable suppression
    • Best for: Structure protection, sustained attack
+
 
 🎯 **GOAL:** Contain fire before it reaches 200 acres!
 
@@ -1003,14 +1002,15 @@ Use `/stop` to see your performance report."""
         else:
             message = f"""{urgency_icon} **{incident_name.upper()}** - {urgency_text}
 
-🔥 **{stats['fire_size_acres']} acres** ({size_change})
-📊 **{stats['containment_percent']}% contained**
 
-{threat_emoji} **{threats['threat_level']} threat** • Wind: {stats['weather']['wind_speed']} mph
+🔥 **FIRE STATUS:**
+• **Size:** {stats['fire_size_acres']} acres ({size_change})
+• **Containment:** {stats['containment_percent']}%
+• **Threat:** {threat_emoji} {threats['threat_level']} - Wind: {stats['weather']['wind_speed']} mph
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💰 **Budget: {user_state.get('budget', 10)} points**
+💰 **Budget:** {user_state.get('budget', 10)} points
+
 
 **TACTICAL OPTIONS:**
 1️⃣ **Ground Crews** (2 pts) - Fast attack
