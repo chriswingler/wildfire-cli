@@ -13,6 +13,7 @@ import asyncio
 import os
 import logging
 from commands import setup
+from aiohttp import web
 
 load_dotenv()
 
@@ -28,16 +29,39 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
+async def health_check(request):
+    """Health check endpoint for DigitalOcean."""
+    return web.Response(text="Wildfire bot is healthy", status=200)
+
+async def start_health_server():
+    """Start simple HTTP server for health checks."""
+    app = web.Application()
+    app.router.add_get('/health', health_check)
+    app.router.add_get('/', health_check)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    logging.info("Health check server started on port 8080")
+
 async def main():
     """! 
     @brief Main asynchronous entry point for the bot
     @details Handles:
     - Cog setup initialization
     - Bot startup with environment token
+    - Health check server for DigitalOcean
     - Event loop management
     """
+    # Setup Discord bot
     await setup(bot)
-    await bot.start(os.getenv("DISCORD_TOKEN"))
+    
+    # Start both health server and Discord bot concurrently
+    await asyncio.gather(
+        start_health_server(),
+        bot.start(os.getenv("DISCORD_TOKEN"))
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())

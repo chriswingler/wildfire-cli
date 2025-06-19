@@ -39,8 +39,9 @@ fi
 
 echo "📦 Creating DigitalOcean App..."
 
-# Deploy using App Platform
-doctl apps create .do/app.yaml
+# Deploy using App Platform (buildpack only, ~$5/month)
+echo "🏗️  Using Python buildpack deployment (cheaper than Docker)"
+doctl apps create --spec .do/app.yaml --wait
 
 # Get app ID
 APP_ID=$(doctl apps list --format ID --no-header | head -n1)

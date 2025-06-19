@@ -167,6 +167,14 @@ class WildfireCommands(commands.Cog):
     async def on_ready(self):
         """Bot startup handler."""
         await self.bot.change_presence(activity=discord.Game(name="🔥 Wildfire Response MMORPG"))
+        
+        # Sync slash commands now that bot is ready
+        try:
+            synced = await self.bot.tree.sync()
+            logging.info(f"🔥 Synced {len(synced)} wildfire commands")
+        except Exception as e:
+            logging.error(f"Failed to sync commands: {e}")
+            
         logging.info(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
 
     @discord.app_commands.command(name="fire", description="🔥 Report a new wildfire incident")
@@ -285,9 +293,5 @@ async def setup(bot):
     """
     await bot.add_cog(WildfireCommands(bot))
     
-    # Sync slash commands
-    try:
-        synced = await bot.tree.sync()
-        logging.info(f"🔥 Synced {len(synced)} wildfire commands")
-    except Exception as e:
-        logging.error(f"Failed to sync commands: {e}")
+    # Don't sync commands here - wait for on_ready event
+    logging.info("🔥 Wildfire commands cog loaded")
