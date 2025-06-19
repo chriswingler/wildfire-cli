@@ -53,27 +53,28 @@ class TacticalChoicesView(discord.ui.View):
     
     async def _handle_choice_result(self, interaction, resource_name, result):
         """Handle the result of a tactical choice."""
-        if result["success"]:
-            # Show auto-progression if it happened
-            auto = result.get("auto_progression")
-            auto_message = ""
-            if auto:
-                if auto["points_earned"] > 0:
-                    auto_message = f"\n\n📈 **PERFORMANCE BONUS: +{auto['points_earned']} pts!**\nGreat containment work!"
-                else:
-                    auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
-            
-            # Generate progression comparison
-            progression_message = self._create_progression_message(result)
-            
-            # Get current fire status after deployment
-            user_state = self.singleplayer_game.get_user_state(self.user_id)
-            stats = user_state["fire_grid"].get_fire_statistics()
-            threats = user_state["fire_grid"].get_threat_assessment()
-            
-            threat_emoji = "🔴" if threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
-            
-            message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
+        try:
+            if result["success"]:
+                # Show auto-progression if it happened
+                auto = result.get("auto_progression")
+                auto_message = ""
+                if auto:
+                    if auto["points_earned"] > 0:
+                        auto_message = f"\n\n📈 **PERFORMANCE BONUS: +{auto['points_earned']} pts!**\nGreat containment work!"
+                    else:
+                        auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
+                
+                # Generate progression comparison
+                progression_message = self._create_progression_message(result)
+                
+                # Get current fire status after deployment
+                user_state = self.singleplayer_game.get_user_state(self.user_id)
+                stats = user_state["fire_grid"].get_fire_statistics()
+                threats = user_state["fire_grid"].get_threat_assessment()
+                
+                threat_emoji = "🔴" if threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
+                
+                message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
 {progression_message}
 
@@ -82,26 +83,23 @@ class TacticalChoicesView(discord.ui.View):
 • **Containment:** {stats['containment_percent']}%
 • **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
 
-
 💰 **Budget:** {result['remaining_budget']} points remaining
 {auto_message}
 
-
 **Continue fighting the fire:**"""
-            
-            # Create new tactical choices view
-            view = TacticalChoicesView(self.singleplayer_game, self.user_id)
-            await interaction.response.send_message(message, view=view)
-            
-        else:
-            # Game over - no more budget
-            user_state = self.singleplayer_game.get_user_state(self.user_id)
-            stats = user_state["fire_grid"].get_fire_statistics()
-            
-            # Set game phase to failed
-            user_state["game_phase"] = "failed"
-            
-            message = f"""💥 **GAME OVER - OUT OF BUDGET!**
+                
+                # Create new tactical choices view
+                view = TacticalChoicesView(self.singleplayer_game, self.user_id)
+                await interaction.response.send_message(message, view=view)
+            else:
+                # Game over - no more budget
+                user_state = self.singleplayer_game.get_user_state(self.user_id)
+                stats = user_state["fire_grid"].get_fire_statistics()
+                
+                # Set game phase to failed
+                user_state["game_phase"] = "failed"
+                
+                message = f"""💥 **GAME OVER - OUT OF BUDGET!**
 
 🔥 **FINAL FIRE STATUS:**
 • **Size:** {stats['fire_size_acres']} acres
@@ -112,39 +110,11 @@ class TacticalChoicesView(discord.ui.View):
 🎯 **RESULT:** Fire continued to spread without sufficient resources!
 
 **🚀 Ready to try again?**"""
-            
-            # Create restart button
-            restart_view = discord.ui.View()
-            restart_button = discord.ui.Button(label='🔄 START NEW SCENARIO', style=discord.ButtonStyle.success)
-            
-            async def restart_callback(restart_interaction):
-                if restart_interaction.user.id != self.user_id:
-                    await restart_interaction.response.send_message("❌ This isn't your scenario!", ephemeral=True)
-                    return
                 
-                # Clear old state and start new
-                self.singleplayer_game.clear_user_state(self.user_id)
-                user_state = self.singleplayer_game.start_new_scenario(self.user_id)
-                
-                # Send new dispatch
-                from discord_wildfire import WildfireCommands
-                wf_commands = None
-                for cog in restart_interaction.client.cogs.values():
-                    if isinstance(cog, WildfireCommands):
-                        wf_commands = cog
-                        break
-                
-                if wf_commands:
-                    dispatch_message = await wf_commands._create_dispatch_message(self.user_id)
-                    new_view = TacticalChoicesView(self.singleplayer_game, self.user_id)
-                    await restart_interaction.response.send_message(dispatch_message, view=new_view)
-                else:
-                    await restart_interaction.response.send_message("Use `/start` to begin a new scenario!")
-            
-            restart_button.callback = restart_callback
-            restart_view.add_item(restart_button)
-            
-            await interaction.response.send_message(message, view=restart_view)
+                await interaction.response.send_message(message)
+        except Exception as e:
+            print(f"Error in _handle_choice_result: {e}")
+            await interaction.response.send_message(f"✅ {resource_name} deployed! Use `/firestatus` for details.", ephemeral=True)
     
     def _create_progression_message(self, result):
         """Create a message showing what changed from the previous action."""
@@ -605,10 +575,8 @@ class WildfireCommands(commands.Cog):
 • **Containment:** {stats['containment_percent']}%
 • **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
 
-
 💰 **Budget:** {result['remaining_budget']} points remaining
 {auto_message}
-
 
 **Continue fighting the fire:**"""
             
