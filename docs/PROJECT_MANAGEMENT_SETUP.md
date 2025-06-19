@@ -4,26 +4,26 @@ This guide sets up the wildfire-cli repository with comprehensive agile project 
 
 ## Quick Setup Instructions
 
-### 1. Create GitHub Project
-Since project creation requires additional token scopes, create manually:
+### 1. Create GitHub Projects Manually
+Since GitHub CLI project creation requires additional token scopes, use manual setup:
 
-1. Go to https://github.com/chriswingler/wildfire-cli
-2. Click "Projects" tab → "New Project"
-3. Choose "Team Planning" template
-4. Name: "Wildfire CLI Development"
-5. Description: "Agile development workspace for wildfire incident commander game"
+**🚀 Quick Setup (5 minutes):**
+- See: [Quick Projects Setup Guide](QUICK_PROJECTS_SETUP.md)
 
-### 2. Project Configuration Commands
+**📋 Detailed Setup:**
+- See: [GitHub Projects Setup Guide](GITHUB_PROJECTS_SETUP.md)
 
-Once project is created, run these commands (replace PROJECT_ID with actual ID):
+**💡 Additional Projects:**
+- See: [Additional Projects Ideas](ADDITIONAL_PROJECTS_IDEAS.md)
 
-```bash
-# Get project ID
-gh project list --owner @me
-
-# Add repository to project
-gh project edit PROJECT_ID --add-repo chriswingler/wildfire-cli
-```
+### 2. Primary Project: "Wildfire CLI Development"
+1. Go to https://github.com/chriswingler/wildfire-cli/projects
+2. Click "New Project" → "Team Planning" template
+3. Name: "Wildfire CLI Development"
+4. Description: "Agile development workspace for sprint planning and execution"
+5. Add custom fields: Story Points, Priority, Epic, Sprint
+6. Add all repository issues (#1-#12)
+7. Configure issue metadata for agile tracking
 
 ## Custom Fields Setup
 
