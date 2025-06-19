@@ -149,6 +149,17 @@ class WildfireCommands(commands.Cog):
         """Initialize game database when cog loads."""
         await self.game.init_database()
         
+        # Sync commands immediately after cog loads
+        try:
+            total_synced = 0
+            for guild in self.bot.guilds:
+                synced = await self.bot.tree.sync(guild=guild)
+                total_synced += len(synced)
+                logging.info(f"🔥 Synced {len(synced)} commands to guild {guild.name}")
+            logging.info(f"🔥 Total {total_synced} wildfire commands synced from cog_load")
+        except Exception as e:
+            logging.error(f"Failed to sync commands in cog_load: {e}")
+        
     async def add_safe_reaction(self, message, emoji):
         """Safely add reactions with rate limit handling."""
         try:
@@ -167,18 +178,6 @@ class WildfireCommands(commands.Cog):
     async def on_ready(self):
         """Bot startup handler."""
         await self.bot.change_presence(activity=discord.Game(name="🔥 Wildfire Response MMORPG"))
-        
-        # Sync slash commands to each guild for immediate availability
-        try:
-            total_synced = 0
-            for guild in self.bot.guilds:
-                synced = await self.bot.tree.sync(guild=guild)
-                total_synced += len(synced)
-                logging.info(f"🔥 Synced {len(synced)} commands to guild {guild.name}")
-            logging.info(f"🔥 Total {total_synced} wildfire commands synced")
-        except Exception as e:
-            logging.error(f"Failed to sync commands: {e}")
-            
         logging.info(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
 
     @discord.app_commands.command(name="fire", description="🔥 Report a new wildfire incident")
