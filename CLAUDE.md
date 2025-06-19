@@ -32,12 +32,22 @@ Wildfire CLI is a text-based wildfire incident commander simulation game that te
 wildfire-cli/
 ├── src/
 │   ├── discord_wildfire.py   # Discord bot with context-aware commands
+│   ├── fire_engine.py        # Complete cellular automata fire simulation (Sprint 3)
+│   ├── incident_reports.py   # Professional ICS report generation (Sprint 3)
 │   ├── game/                 # Core game logic and simulation
 │   ├── ui/                   # Rich library interface components  
 │   └── scenarios/            # Game content and decision trees
+├── wiki/                     # Development wiki (GitHub submodule)
+│   ├── Home.md              # Development dashboard
+│   ├── Sprint-Planning.md   # PM workflows and ceremonies
+│   ├── Kanban-Workflow.md   # GitHub project board usage
+│   ├── Technical-Architecture.md # System design and decisions
+│   ├── Development-Standards.md  # Code quality and conventions
+│   ├── Troubleshooting.md   # Common issues and solutions
+│   ├── Velocity-Analysis.md # Sprint metrics and capacity planning
+│   └── Deployment-Guide.md  # Production deployment workflows
 ├── data/                     # Scenario configurations (JSON)
 ├── tests/                    # Unit and integration tests
-├── docs/                     # Project documentation
 ├── .do/                      # DigitalOcean deployment configuration
 └── .github/                  # GitHub automation and templates
 ```
@@ -63,8 +73,66 @@ wildfire-cli/
 - **Sprint 1**: Foundation - Discord bot basics (completed)
 - **Sprint 2**: Singleplayer DM Mode - 16 story points (completed) 
 - **Sprint 3**: Core Simulation Engine - 25+ story points (✅ MAJOR SUCCESS)
-- **Sprint 4**: Enhanced Multiplayer - 20 story points (in planning)
+- **Sprint 4**: Singleplayer UX Excellence - 20 story points (🔄 REPRIORITIZED)
+- **Sprint 5**: Enhanced Multiplayer - 20 story points (planned)
 - **Average Velocity**: 25+ story points per sprint (significantly exceeded estimates)
+
+### Sprint 4 Reprioritization (Critical UX Fix)
+**Problem Identified:** Sprint 3 delivered excellent technical foundation but poor user experience
+- ❌ Code blocks instead of rich Discord embeds
+- ❌ Information dumps vs progressive learning
+- ❌ No interactive decision buttons
+- ❌ Turn-based vs real-time incident feel
+
+**Sprint 4 Solution:** Singleplayer UX Excellence (Issues #22, #23, #24)
+- 🎮 Discord Interactive Interface (6 pts) - Rich embeds & decision buttons
+- 🎓 Rookie Commander Tutorial (6 pts) - Integrated learning experience  
+- ⚡ Real-time Game Feel (6 pts) - Dynamic fire progression
+- 📋 Multiplayer Foundation (2 pts) - Architecture planning for Sprint 5
+
+**Epic #20 Deferred:** Enhanced Multiplayer moved to Sprint 5 after UX foundation complete
+
+## Wiki Submodule Integration
+
+### **GitHub Wiki as Submodule**
+The project uses the GitHub wiki as a Git submodule for automatic development documentation management:
+
+```bash
+# Wiki submodule setup (completed)
+git submodule add https://github.com/chriswingler/wildfire-cli.wiki.git wiki
+git submodule update --init --recursive
+```
+
+### **Submodule Workflow**
+**Developer workflow integrates wiki updates with code changes:**
+
+```bash
+# Working with wiki submodule (automatic management)
+cd wildfire-cli/
+# Edit both code and wiki/ documentation
+git add src/ wiki/
+git commit -m "Feature implementation + wiki update"
+git push --recurse-submodules=on-demand
+# Both main repo and wiki automatically updated
+```
+
+### **Wiki Content Organization**
+**Internal development documentation structure:**
+- **[Home](wiki/Home.md)** - Development dashboard with current sprint status
+- **[Sprint Planning](wiki/Sprint-Planning.md)** - PM workflows and sprint ceremonies  
+- **[Kanban Workflow](wiki/Kanban-Workflow.md)** - GitHub project board usage and labels
+- **[Technical Architecture](wiki/Technical-Architecture.md)** - System design and technical decisions
+- **[Development Standards](wiki/Development-Standards.md)** - Code quality standards and conventions
+- **[Troubleshooting](wiki/Troubleshooting.md)** - Common development issues and solutions
+- **[Velocity Analysis](wiki/Velocity-Analysis.md)** - Sprint metrics and capacity planning
+- **[Deployment Guide](wiki/Deployment-Guide.md)** - Production deployment workflows
+
+### **Benefits of Submodule Approach**
+- ✅ **Automatic wiki management** - No separate workflows needed
+- ✅ **Version synchronization** - Wiki and code stay in sync
+- ✅ **GitHub web interface** - Still accessible via GitHub wiki UI
+- ✅ **PM integration** - Wiki updates part of sprint workflow
+- ✅ **Full version control** - Complete Git workflow for documentation
 
 ### Sprint 3 Major Achievements
 - **🔥 Complete Fire Simulation Engine** - Cellular automata with realistic behavior
@@ -286,6 +354,54 @@ gh milestone create "Sprint 4" --due-date 2025-07-01
 gh label create "epic" --description "Large feature initiative" --color "5319E7"
 gh issue view 123 --json body,labels,assignees
 ```
+
+#### GitHub Project Kanban Board Structure
+**Claude has set up a comprehensive GitHub project with kanban workflow for visual project management:**
+
+**Work Stream Labels (for categorization):**
+- `area: ui-ux` - User interface and experience work stream
+- `area: game-engine` - Core game logic and simulation work stream  
+- `area: content` - Game content and scenarios work stream
+- `area: infrastructure` - Architecture, deployment, and tooling work stream
+
+**Status Labels (for kanban workflow):**
+- `status: todo` - Ready to start work (purple)
+- `status: in-progress` - Currently being worked on (yellow)
+- `status: review` - Code review or testing needed (orange)
+- `status: done` - Completed and deployed (green)
+
+**Iteration Labels (for sprint grouping):**
+- `iteration: current` - Current sprint (Sprint 4)
+- `iteration: next` - Next sprint (Sprint 5)  
+- `iteration: future` - Future sprint planning
+
+**GitHub Project Board Views:**
+1. **Main Board View** - Grouped by work streams for quick categorization
+2. **Sprint Board View** - Grouped by iterations for sprint planning
+3. **Kanban Board View** - Grouped by status for workflow management
+4. **Feature Focus View** - Filter by user-story label for feature work
+
+**Project Board Usage:**
+```bash
+# Add work stream and status labels to issues
+gh issue edit 22 --add-label "area: ui-ux,status: todo,iteration: current"
+
+# Move items through kanban workflow
+gh issue edit 22 --remove-label "status: todo" --add-label "status: in-progress"
+
+# Sprint planning with iteration management
+gh issue edit 20 --add-label "iteration: next" --milestone "Sprint 5"
+
+# Quick issue creation with proper categorization
+gh issue create --title "New Feature" --label "user-story,area: ui-ux,status: todo"
+```
+
+**Kanban Workflow Process:**
+1. **New Issues** → `status: todo` (ready for sprint planning)
+2. **Sprint Planning** → Assign to iteration and work stream
+3. **Development** → Move to `status: in-progress` 
+4. **Code Review** → Move to `status: review`
+5. **Completed** → Move to `status: done` and close issue
 
 ### Sprint Planning Process
 - **Claude manages sprint planning issues** with velocity tracking
