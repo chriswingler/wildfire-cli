@@ -24,7 +24,7 @@ class TacticalChoicesView(discord.ui.View):
         self.singleplayer_game = singleplayer_game
         self.user_id = user_id
     
-    @discord.ui.button(label='1️⃣ Ground Crews - Fast Attack ($1,800)', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
+    @discord.ui.button(label='1 🚒 $1.8k', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
     async def deploy_crews(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -33,7 +33,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "hand_crews", 1)
         await self._handle_choice_result(interaction, "Ground Crews", result)
     
-    @discord.ui.button(label='2️⃣ Air Support - Heavy Power ($12,000)', style=discord.ButtonStyle.danger, custom_id='deploy_air')
+    @discord.ui.button(label='2 🚁 $12k', style=discord.ButtonStyle.danger, custom_id='deploy_air')
     async def deploy_air(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -42,7 +42,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "air_tankers", 1)
         await self._handle_choice_result(interaction, "Air Support", result)
     
-    @discord.ui.button(label='3️⃣ Engine Company - Balanced ($3,200)', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
+    @discord.ui.button(label='3 🚛 $3.2k', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
     async def deploy_engines(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -51,7 +51,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "engines", 1)
         await self._handle_choice_result(interaction, "Engine Company", result)
     
-    @discord.ui.button(label='4️⃣ Dozer - Firebreak Builder ($4,600)', style=discord.ButtonStyle.danger, custom_id='deploy_dozers')
+    @discord.ui.button(label='4 🚜 $4.6k', style=discord.ButtonStyle.success, custom_id='deploy_dozers')
     async def deploy_dozers(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -97,9 +97,53 @@ class TacticalChoicesView(discord.ui.View):
 
 **Continue fighting the fire:**"""
                 
-                # Check if user can afford any resources before showing choices
+                # Check for mission accomplished (100% containment)
                 user_state = self.singleplayer_game.get_user_state(self.user_id)
                 current_budget = user_state["budget"]
+                
+                if stats['containment_percent'] >= 100:
+                    # Mission accomplished! Award budget and start new fire
+                    bonus_budget = 8000  # Reward for successful containment
+                    user_state["budget"] += bonus_budget
+                    new_budget = user_state["budget"]
+                    
+                    # Start new fire immediately
+                    user_state = self.singleplayer_game.start_new_scenario(self.user_id)
+                    new_stats = user_state["fire_grid"].get_fire_statistics()
+                    new_threats = user_state["fire_grid"].get_threat_assessment()
+                    new_threat_emoji = "🔴" if new_threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if new_threats['threat_level'] == "MODERATE" else "🟢"
+                    
+                    mission_message = f"""🎉 **MISSION ACCOMPLISHED!** 🎉
+
+🔥 **PREVIOUS FIRE:** Successfully contained at {after['fire_size_acres']} acres
+💰 **PERFORMANCE BONUS:** +${bonus_budget:,} 
+💳 **NEW BUDGET:** ${new_budget:,}
+
+🚨 **NEW WILDFIRE DETECTED!**
+
+**{user_state['incident_name'].upper()}** is spreading!
+
+🔥 **FIRE STATUS:**
+• **Size:** {new_stats['fire_size_acres']} acres
+• **Containment:** {new_stats['containment_percent']}%
+• **Threat:** {new_threat_emoji} {new_threats['threat_level']} - {new_threats['threatened_structures']} structures at risk
+
+💰 **Budget:** ${new_budget:,}
+
+**Ready for your next incident command assignment:**"""
+                    
+                    # Create new tactical choices view
+                    view = TacticalChoicesView(self.singleplayer_game, self.user_id)
+                    
+                    # Use defer + followup for clean DM conversation (no reply chains)
+                    if interaction.guild is None:
+                        await interaction.response.defer()
+                        await interaction.followup.send(mission_message, view=view)
+                    else:
+                        await interaction.response.send_message(mission_message, view=view)
+                    return
+                
+                # Check if user can afford any resources before showing choices
                 min_cost = min([1800, 3200, 4600, 12000])  # hand_crews is cheapest
                 
                 if current_budget < min_cost:
@@ -1203,32 +1247,17 @@ class WildfireCommands(commands.Cog):
 *Good containment earns more funding!*
 
 
-**TACTICAL DEPLOYMENT OPTIONS:**
+**TACTICAL OPTIONS:**
 
-1️⃣ **Ground Crews** ($1,800) - **PRECISION SPECIALISTS**
-   • +50% effective on fires ≤30 acres
-   • Weather independent, all-terrain capable
-   • Best for: Initial attack, small fires
-
-2️⃣ **Air Support** ($12,000) - **HEAVY POWER** 
-   • +80% effective on fires ≥50 acres
-   • ⚠️ GROUNDED if winds >20mph
-   • Best for: Large fires, calm weather
-
-3️⃣ **Engine Company** ($3,200) - **RELIABLE WORKHORSE**
-   • +40% effective on 30-100 acre fires
-   • Weather independent, sustained operations
-   • Best for: Medium fires, structure protection
-
-4️⃣ **Dozer** ($4,600) - **PREVENTION MASTER**
-   • +60% effective for containment lines
-   • Most effective on fires ≤60 acres
-   • Best for: Building firebreaks, prevention
+🔵 **1 🚒 Ground Crews** ($1,800) - +50% on small fires ≤30 acres
+🔴 **2 🚁 Air Support** ($12,000) - +80% on large fires, ⚠️ grounded if winds >20mph  
+⚫ **3 🚛 Engine Company** ($3,200) - +40% on medium fires, reliable
+🟢 **4 🚜 Dozer** ($4,600) - +60% for firebreaks, prevention specialist
 
 
 🎯 **GOAL:** Contain fire before it reaches 200 acres!
 
-**Click buttons below OR type 1, 2, 3, or 4 to deploy!**"""
+**Click tactical buttons OR type 1, 2, 3, or 4 to deploy!**"""
 
         return message
     
@@ -1290,10 +1319,10 @@ Use `/stop` to see your performance report."""
 
 
 **TACTICAL OPTIONS:**
-1️⃣ **Ground Crews** ($1,800) - Fast attack
-2️⃣ **Air Support** ($12,000) - Heavy power 
-3️⃣ **Engine Company** ($3,200) - Balanced
-4️⃣ **Dozer** ($4,600) - Firebreaks
+🔵 **1 🚒** ($1,800) - Fast attack
+🔴 **2 🚁** ($12,000) - Heavy power 
+⚫ **3 🚛** ($3,200) - Balanced
+🟢 **4 🚜** ($4,600) - Firebreaks
 
 {time_left}
 
