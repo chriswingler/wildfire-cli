@@ -24,7 +24,7 @@ class TacticalChoicesView(discord.ui.View):
         self.singleplayer_game = singleplayer_game
         self.user_id = user_id
     
-    @discord.ui.button(label='1️⃣ Ground Crews - Fast Attack (2pts)', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
+    @discord.ui.button(label='1️⃣ Ground Crews - Fast Attack ($4,600)', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
     async def deploy_crews(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -33,7 +33,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "hand_crews", 1)
         await self._handle_choice_result(interaction, "Ground Crews", result)
     
-    @discord.ui.button(label='2️⃣ Air Support - Heavy Power (5pts)', style=discord.ButtonStyle.danger, custom_id='deploy_air')
+    @discord.ui.button(label='2️⃣ Air Support - Heavy Power ($12,000)', style=discord.ButtonStyle.danger, custom_id='deploy_air')
     async def deploy_air(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -42,7 +42,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "air_tankers", 1)
         await self._handle_choice_result(interaction, "Air Support", result)
     
-    @discord.ui.button(label='3️⃣ Engine Company - Balanced (3pts)', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
+    @discord.ui.button(label='3️⃣ Engine Company - Balanced ($1,800)', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
     async def deploy_engines(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -50,6 +50,15 @@ class TacticalChoicesView(discord.ui.View):
             
         result = self.singleplayer_game.deploy_resources(self.user_id, "engines", 1)
         await self._handle_choice_result(interaction, "Engine Company", result)
+    
+    @discord.ui.button(label='4️⃣ Dozer - Firebreak Builder ($3,200)', style=discord.ButtonStyle.danger, custom_id='deploy_dozers')
+    async def deploy_dozers(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
+            return
+            
+        result = self.singleplayer_game.deploy_resources(self.user_id, "dozers", 1)
+        await self._handle_choice_result(interaction, "Dozer", result)
     
     async def _handle_choice_result(self, interaction, resource_name, result):
         """Handle the result of a tactical choice."""
@@ -83,7 +92,7 @@ class TacticalChoicesView(discord.ui.View):
 • **Containment:** {stats['containment_percent']}%
 • **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
 
-💰 **Budget:** {result['remaining_budget']} points remaining
+💰 **Budget:** ${result['remaining_budget']:,} remaining
 {auto_message}
 
 **Continue fighting the fire:**"""
@@ -105,7 +114,7 @@ class TacticalChoicesView(discord.ui.View):
 • **Size:** {stats['fire_size_acres']} acres
 • **Containment:** {stats['containment_percent']}%
 
-💰 **Budget:** {result['budget']} pts (Need {result['cost']} pts for {resource_name})
+💰 **Budget:** ${result['budget']:,} (Need ${result['cost']:,} for {resource_name})
 
 🎯 **RESULT:** Fire continued to spread without sufficient resources!
 
@@ -131,8 +140,24 @@ class TacticalChoicesView(discord.ui.View):
         # Get budget change from result
         cost = result.get('cost', 0)
         
+        # Get effectiveness data from the user state for strategic feedback
+        user_state = self.singleplayer_game.get_user_state(self.user_id)
+        effectiveness_data = user_state.get("last_effectiveness", {})
+        
         # Format changes with clear +/- indicators
         changes = []
+        
+        # Strategic effectiveness analysis
+        if effectiveness_data:
+            eff_mult = effectiveness_data.get('effectiveness_multiplier', 1.0)
+            conditions = effectiveness_data.get('conditions', {})
+            
+            if eff_mult > 1.2:
+                changes.append(f"🎯 **EXCELLENT CHOICE** - {int((eff_mult-1)*100)}% effectiveness bonus!")
+            elif eff_mult < 0.8:
+                changes.append(f"⚠️ **POOR CONDITIONS** - {int((1-eff_mult)*100)}% effectiveness penalty")
+            else:
+                changes.append(f"✅ **GOOD DEPLOYMENT** - Standard effectiveness")
         
         # Fire size change
         if size_change > 0:
@@ -151,7 +176,7 @@ class TacticalChoicesView(discord.ui.View):
             changes.append(f"➡️ **Containment: no change**")
             
         # Budget change (always shows the cost)
-        changes.append(f"💰 **Budget: -{cost} pts** (resource cost)")
+        changes.append(f"💰 **Budget: -${cost:,}** (resource cost)")
         
         # Structures threatened change
         before_threats = before.get('threatened_structures', 0)
@@ -163,7 +188,7 @@ class TacticalChoicesView(discord.ui.View):
         elif structures_change < 0:
             changes.append(f"🏠 **Structures: {structures_change} at risk** (threat reduced)")
         
-        return f"\n⚡ **IMMEDIATE EFFECT:**\n" + "\n".join(f"   {change}" for change in changes) + "\n"
+        return f"\n⚡ **TACTICAL ANALYSIS:**\n" + "\n".join(f"   {change}" for change in changes) + "\n"
 
 
 class SingleplayerGame:
@@ -186,7 +211,7 @@ class SingleplayerGame:
                 "operational_period": 1,
                 "last_update": datetime.now(),
                 "game_phase": "ready",  # ready, active, contained, completed
-                "budget": 10,  # Starting resource budget
+                "budget": 10000,  # Starting resource budget in dollars
                 "score": 0  # Performance score
             }
         return self.user_states[user_id]
@@ -207,8 +232,8 @@ class SingleplayerGame:
         user_state["game_phase"] = "active"
         user_state["last_update"] = datetime.now()
         user_state["next_progression"] = datetime.now() + timedelta(seconds=45)  # Auto-advance in 45 seconds
-        user_state["resources_deployed"] = {"hand_crews": 1, "engines": 1, "air_tankers": 0}
-        user_state["budget"] = 15  # Starting budget
+        user_state["resources_deployed"] = {"hand_crews": 1, "engines": 1, "air_tankers": 0, "dozers": 0}
+        user_state["budget"] = 10000  # Starting budget in dollars
         user_state["performance_score"] = 100  # Performance rating
         user_state["actions_taken"] = 0
         
@@ -231,8 +256,8 @@ class SingleplayerGame:
         # Capture BEFORE state for comparison
         old_stats = user_state["fire_grid"].get_fire_statistics() if user_state["fire_grid"] else None
             
-        # Resource costs - SPENDING points on resources
-        costs = {"hand_crews": 2, "engines": 3, "air_tankers": 5}
+        # Resource costs - SPENDING dollars on resources (daily rates)
+        costs = {"hand_crews": 4600, "engines": 1800, "air_tankers": 12000, "dozers": 3200}
         cost = costs.get(resource_type, 2) * count
         
         if user_state["budget"] < cost:
@@ -284,9 +309,10 @@ class SingleplayerGame:
         
         # Apply suppression based on deployed resources
         total_suppression = (
-            user_state["resources_deployed"]["hand_crews"] * 20 +
-            user_state["resources_deployed"]["engines"] * 15 + 
-            user_state["resources_deployed"]["air_tankers"] * 30
+            user_state["resources_deployed"]["hand_crews"] * 25 +
+            user_state["resources_deployed"]["engines"] * 18 + 
+            user_state["resources_deployed"]["air_tankers"] * 40 +
+            user_state["resources_deployed"]["dozers"] * 30
         )
         
         user_state["fire_grid"].apply_suppression(total_suppression)
@@ -335,10 +361,78 @@ class SingleplayerGame:
         }
     
     def _apply_immediate_suppression(self, user_state, resource_type, count):
-        """Apply immediate suppression effect when resources are deployed."""
-        suppression_values = {"hand_crews": 5, "engines": 7, "air_tankers": 12}
-        immediate_suppression = suppression_values.get(resource_type, 5) * count
-        user_state["fire_grid"].apply_suppression(immediate_suppression)
+        """Apply strategic suppression effect based on terrain and weather conditions."""
+        base_suppression = {"hand_crews": 8, "engines": 6, "air_tankers": 15, "dozers": 10}
+        
+        # Get current fire and weather conditions
+        stats = user_state["fire_grid"].get_fire_statistics()
+        fire_size = stats['fire_size_acres']
+        weather = stats['weather']
+        wind_speed = weather['wind_speed']
+        
+        # Calculate strategic effectiveness multiplier
+        effectiveness = self._calculate_resource_effectiveness(
+            resource_type, fire_size, wind_speed, weather
+        )
+        
+        # Apply strategic suppression
+        base_value = base_suppression.get(resource_type, 5) * count
+        strategic_suppression = int(base_value * effectiveness)
+        
+        # Store effectiveness for feedback
+        user_state["last_effectiveness"] = {
+            "resource": resource_type,
+            "base_suppression": base_value,
+            "effectiveness_multiplier": effectiveness,
+            "final_suppression": strategic_suppression,
+            "conditions": {
+                "fire_size": fire_size,
+                "wind_speed": wind_speed,
+                "weather_suitable": effectiveness > 1.0
+            }
+        }
+        
+        user_state["fire_grid"].apply_suppression(strategic_suppression)
+    
+    def _calculate_resource_effectiveness(self, resource_type, fire_size, wind_speed, weather):
+        """Calculate resource effectiveness based on conditions."""
+        effectiveness = 1.0  # Base effectiveness
+        
+        if resource_type == "hand_crews":
+            # Hand crews: Best for small fires and steep terrain
+            if fire_size <= 30:
+                effectiveness *= 1.5  # +50% on small fires
+            elif fire_size >= 80:
+                effectiveness *= 0.7  # -30% on large fires
+            # Always reliable regardless of weather
+            
+        elif resource_type == "air_tankers":
+            # Air support: Weather dependent, great for large fires
+            if wind_speed > 20:
+                effectiveness *= 0.3  # Grounded in high winds
+            elif wind_speed < 10:
+                effectiveness *= 1.3  # +30% in calm conditions
+                
+            if fire_size >= 50:
+                effectiveness *= 1.8  # +80% on large fires
+            elif fire_size <= 20:
+                effectiveness *= 0.6  # -40% on small fires (overkill)
+                
+        elif resource_type == "engines":
+            # Engines: Consistent, good for sustained attack
+            if fire_size >= 30 and fire_size <= 100:
+                effectiveness *= 1.4  # +40% in sweet spot
+            # Reliable in most weather conditions
+            
+        elif resource_type == "dozers":
+            # Dozers: Prevention specialists, terrain dependent
+            if fire_size <= 60:
+                effectiveness *= 1.6  # +60% for containment lines
+            else:
+                effectiveness *= 0.8  # Less effective once fire is large
+            # Weather independent
+        
+        return max(0.2, effectiveness)  # Minimum 20% effectiveness
         
     def advance_operational_period(self, user_id):
         """Advance to next operational period with fire progression."""
@@ -349,9 +443,10 @@ class SingleplayerGame:
             
         # Apply suppression based on deployed resources
         total_suppression = (
-            user_state["resources_deployed"]["hand_crews"] * 20 +
-            user_state["resources_deployed"]["engines"] * 15 + 
-            user_state["resources_deployed"]["air_tankers"] * 30
+            user_state["resources_deployed"]["hand_crews"] * 25 +
+            user_state["resources_deployed"]["engines"] * 18 + 
+            user_state["resources_deployed"]["air_tankers"] * 40 +
+            user_state["resources_deployed"]["dozers"] * 30
         )
         
         user_state["fire_grid"].apply_suppression(total_suppression)
@@ -542,6 +637,9 @@ class WildfireCommands(commands.Cog):
         elif message.content.strip() in ["3", "3️⃣"]:
             result = self.singleplayer_game.deploy_resources(message.author.id, "engines", 1)
             await self._send_choice_response(message.channel, "Engine Company", result, message.author.id)
+        elif message.content.strip() in ["4", "4️⃣"]:
+            result = self.singleplayer_game.deploy_resources(message.author.id, "dozers", 1)
+            await self._send_choice_response(message.channel, "Dozer", result, message.author.id)
     
     async def _send_choice_response(self, channel, resource_name, result, user_id):
         """Send response for typed tactical choice."""
@@ -575,7 +673,7 @@ class WildfireCommands(commands.Cog):
 • **Containment:** {stats['containment_percent']}%
 • **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
 
-💰 **Budget:** {result['remaining_budget']} points remaining
+💰 **Budget:** ${result['remaining_budget']:,} remaining
 {auto_message}
 
 **Continue fighting the fire:**"""
@@ -598,7 +696,7 @@ class WildfireCommands(commands.Cog):
 • **Size:** {stats['fire_size_acres']} acres
 • **Containment:** {stats['containment_percent']}%
 
-💰 **Budget:** {result['budget']} pts (Need {result['cost']} pts for {resource_name})
+💰 **Budget:** ${result['budget']:,} (Need ${result['cost']:,} for {resource_name})
 
 🎯 **RESULT:** Fire continued to spread without sufficient resources!
 
@@ -717,14 +815,15 @@ class WildfireCommands(commands.Cog):
             return
             
         # Deploy additional resources to the incident
-        resource_deployed = random.choice(["hand_crews", "engines", "air_tankers"])
+        resource_deployed = random.choice(["hand_crews", "engines", "air_tankers", "dozers"])
         result = self.singleplayer_game.deploy_resources(interaction.user.id, resource_deployed, 1)
         
         if result["success"]:
             resource_names = {
                 "hand_crews": "Hand Crew",
                 "engines": "Engine Company", 
-                "air_tankers": "Air Tanker"
+                "air_tankers": "Air Tanker",
+                "dozers": "Dozer"
             }
             
             embed = discord.Embed(
@@ -735,7 +834,7 @@ class WildfireCommands(commands.Cog):
             
             embed.add_field(
                 name="💰 COST",
-                value=f"**-{result['cost']} pts** (Budget: {result['remaining_budget']} pts remaining)",
+                value=f"**-${result['cost']:,}** (Budget: ${result['remaining_budget']:,} remaining)",
                 inline=True
             )
             
@@ -760,8 +859,8 @@ class WildfireCommands(commands.Cog):
             if result["reason"] == "insufficient_budget":
                 await interaction.response.send_message(
                     f"❌ **INSUFFICIENT BUDGET**\n"
-                    f"Need {result['cost']} pts, you have {result['budget']} pts\n"
-                    f"💡 Use `/advance` to progress and potentially get more budget",
+                    f"Need ${result['cost']:,}, you have ${result['budget']:,}\n"
+                    f"💡 Use `/advance` to progress and potentially get more funding",
                     ephemeral=True
                 )
             else:
@@ -1018,29 +1117,42 @@ class WildfireCommands(commands.Cog):
 • **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
 • **Weather:** {stats['weather']['wind_direction']} {stats['weather']['wind_speed']} mph, {stats['weather']['temperature']}°F
 
+⚡ **STRATEGIC CONDITIONS:**
+• **Air Ops:** {"🟢 FAVORABLE" if stats['weather']['wind_speed'] <= 15 else "🟡 MARGINAL" if stats['weather']['wind_speed'] <= 20 else "🔴 GROUNDED"} (Wind: {stats['weather']['wind_speed']} mph)
+• **Fire Size:** {"🟢 SMALL" if stats['fire_size_acres'] <= 30 else "🟡 MEDIUM" if stats['fire_size_acres'] <= 60 else "🔴 LARGE"} ({stats['fire_size_acres']} acres)
+• **Urgency:** {"🟢 MANAGEABLE" if stats['fire_size_acres'] <= 50 else "🟡 CRITICAL" if stats['fire_size_acres'] <= 100 else "🔴 EMERGENCY"}
 
-💰 **Budget:** {user_state.get('budget', 15)} points
-*Good containment earns more points!*
+
+💰 **Budget:** ${user_state.get('budget', 10000):,}
+*Good containment earns more funding!*
 
 
 **TACTICAL DEPLOYMENT OPTIONS:**
 
-1️⃣ **Ground Crews** (2 pts) - **FAST ATTACK**
-   • Quick response, cost-effective
-   • Best for: Small fires, initial attack
+1️⃣ **Ground Crews** ($4,600) - **PRECISION SPECIALISTS**
+   • +50% effective on fires ≤30 acres
+   • Weather independent, all-terrain capable
+   • Best for: Initial attack, small fires
 
-2️⃣ **Air Support** (5 pts) - **HEAVY POWER** 
-   • Maximum suppression, expensive
-   • Best for: Large fires, difficult terrain
+2️⃣ **Air Support** ($12,000) - **HEAVY POWER** 
+   • +80% effective on fires ≥50 acres
+   • ⚠️ GROUNDED if winds >20mph
+   • Best for: Large fires, calm weather
 
-3️⃣ **Engine Company** (3 pts) - **BALANCED OPTION**
-   • Moderate cost, reliable suppression
-   • Best for: Structure protection, sustained attack
+3️⃣ **Engine Company** ($1,800) - **RELIABLE WORKHORSE**
+   • +40% effective on 30-100 acre fires
+   • Weather independent, sustained operations
+   • Best for: Medium fires, structure protection
+
+4️⃣ **Dozer** ($3,200) - **PREVENTION MASTER**
+   • +60% effective for containment lines
+   • Most effective on fires ≤60 acres
+   • Best for: Building firebreaks, prevention
 
 
 🎯 **GOAL:** Contain fire before it reaches 200 acres!
 
-**Click buttons below OR type 1, 2, or 3 to deploy!**"""
+**Click buttons below OR type 1, 2, 3, or 4 to deploy!**"""
 
         return message
     
@@ -1098,13 +1210,14 @@ Use `/stop` to see your performance report."""
 • **Threat:** {threat_emoji} {threats['threat_level']} - Wind: {stats['weather']['wind_speed']} mph
 
 
-💰 **Budget:** {user_state.get('budget', 10)} points
+💰 **Budget:** ${user_state.get('budget', 10000):,}
 
 
 **TACTICAL OPTIONS:**
-1️⃣ **Ground Crews** (2 pts) - Fast attack
-2️⃣ **Air Support** (5 pts) - Heavy power 
-3️⃣ **Engine Company** (3 pts) - Balanced
+1️⃣ **Ground Crews** ($4,600) - Fast attack
+2️⃣ **Air Support** ($12,000) - Heavy power 
+3️⃣ **Engine Company** ($1,800) - Balanced
+4️⃣ **Dozer** ($3,200) - Firebreaks
 
 {time_left}
 
