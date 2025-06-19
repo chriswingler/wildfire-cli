@@ -44,17 +44,27 @@ wildfire-cli/
 
 ## Development Workflow
 
-### Agile Process
-- **Sprints**: 2-week cycles with 10-13 story points capacity
-- **Planning**: Use GitHub Projects with custom fields for story points, epics, priorities
-- **Reviews**: Focus on educational value and authentic ICS protocols
+### Agile Process (Claude-Managed)
+- **Sprints**: 2-week cycles with adaptive capacity (16-25 story points proven)
+- **Planning**: Claude manages GitHub issues with story points, epics, and sprint planning
+- **Reviews**: Claude provides sprint retrospectives with velocity analysis
 - **Testing**: >90% code coverage required, emphasis on fire simulation accuracy
+- **PM Leadership**: Claude acts as Product Manager using GitHub CLI for project coordination
 
-### Issue Management
-- Use provided issue templates for user stories, bugs, epics
-- All features must include acceptance criteria and story point estimates
-- Tag issues with appropriate epic labels (🔥 Fire Engine, 🎮 Game Loop, etc.)
-- Follow Definition of Done checklist for all work
+### Issue Management (Claude-Driven)
+- **Claude creates and manages** user stories, bugs, epics with proper formatting
+- **Automated sprint planning** with capacity analysis and risk assessment
+- **Dynamic scope adjustment** based on technical implementation discoveries
+- **Real-time project updates** through GitHub CLI issue management
+- **Epic breakdown** by Claude into manageable user stories with dependencies
+- **Velocity tracking** across sprints with burndown analysis
+
+### Sprint History & Velocity
+- **Sprint 1**: Foundation - Discord bot basics (completed)
+- **Sprint 2**: Singleplayer DM Mode - 16 story points (completed) 
+- **Sprint 3**: Core Simulation Engine - 25+ story points (exceeded capacity)
+- **Sprint 4**: Enhanced Multiplayer - 20 story points (planned)
+- **Average Velocity**: 20+ story points per sprint (trending upward)
 
 ### Code Quality Standards
 - Follow coding standards in `docs/coding_standards.md`
@@ -183,31 +193,82 @@ doctl apps logs abd7b01b-a449-4108-ac1a-5c3825a20322 --type run
 ./deploy.sh
 ```
 
+### Project Management Integration
+```bash
+# Common PM workflows Claude uses
+gh issue list --state open --json number,title,labels
+gh issue create --title "Sprint Planning" --label "sprint-planning"
+gh issue close 123 --comment "Sprint completed with all acceptance criteria met"
+gh issue edit 123 --add-label "ready-for-sprint"
+
+# Sprint velocity tracking
+gh issue comment 19 "Sprint 3: 25+ story points delivered (exceeded capacity)"
+gh milestone create "Sprint 4" --due-date 2025-07-01 --description "Enhanced Multiplayer"
+```
+
 ### Bot Features Live
 ✅ **Multiplayer Mode** - Guild-based team firefighting  
 ✅ **Singleplayer Mode** - DM-based solo training (Sprint 2)  
 ✅ **Context-Aware Commands** - Same commands, different behavior  
 ✅ **Debug Controls** - DM-only development tools
 
-## GitHub Project Management
+## Project Management with Claude Code
 
-### Sprint Planning
-- Use automated sprint planning workflows
-- Review velocity and capacity before committing to work
-- Focus on one epic per sprint when possible
-- Track burndown using story points and issue completion
+### Claude's Product Manager Capabilities
+**Claude Code has full GitHub CLI access and skilled PM abilities for project management:**
 
-### Issue Templates
-- **User Story**: Feature development with acceptance criteria
+#### GitHub Repository Management (via `gh` CLI)
+- **Issue Management**: Create, edit, close, comment on issues
+- **Sprint Planning**: Organize sprints, manage backlogs, track velocity  
+- **Epic Management**: Break down large features into user stories
+- **Label Management**: Apply and manage issue labels for organization
+- **Milestone Tracking**: Set up and track sprint milestones
+- **Project Coordination**: Coordinate work across team members
+
+#### Product Management Skills
+- **Agile Planning**: Sprint planning, backlog grooming, velocity tracking
+- **User Story Writing**: Acceptance criteria, story point estimation
+- **Epic Breakdown**: Large feature decomposition into manageable tasks  
+- **Risk Assessment**: Technical dependencies and delivery risks
+- **Stakeholder Communication**: Progress updates and delivery planning
+- **Quality Assurance**: Definition of Done, acceptance criteria validation
+
+#### GitHub CLI Commands Available
+```bash
+# Issue Management
+gh issue create --title "User Story" --body "Description" --label "user-story"
+gh issue edit 123 --add-label "ready-for-sprint" --milestone "Sprint 4"
+gh issue close 123 --comment "Completed with acceptance criteria met"
+gh issue list --state open --label "sprint-planning"
+
+# Sprint Planning  
+gh issue create --title "🏃 Sprint X Planning" --label "sprint-planning"
+gh issue comment 123 "Sprint velocity: 20 points completed"
+gh milestone create "Sprint 4" --due-date 2025-07-01
+
+# Project Organization
+gh label create "epic" --description "Large feature initiative" --color "5319E7"
+gh issue view 123 --json body,labels,assignees
+```
+
+### Sprint Planning Process
+- **Claude manages sprint planning issues** with velocity tracking
+- **Auto-close completed issues** with detailed completion summaries
+- **Create new sprints** with capacity planning and risk assessment
+- **Update issue scope** based on technical discoveries and dependencies
+- **Track burndown** using story points and delivery metrics
+
+### Issue Templates & Organization
+- **User Story**: Feature development with acceptance criteria (Claude creates)
 - **Bug Report**: Issue tracking with severity classification  
-- **Epic**: Large initiatives broken down into stories
-- **Sprint Planning**: Organized sprint cycles
+- **Epic**: Large initiatives broken down by Claude into stories
+- **Sprint Planning**: Claude-managed sprint cycles with velocity tracking
 
-### Automation
-- Auto-labeling based on issue content and type
-- Sprint progress tracking and burndown metrics
-- PR linking to related issues
-- Velocity calculations and reporting
+### Automation & Tracking
+- **Claude-driven sprint reviews** with velocity and completion analysis
+- **Automated issue updates** based on technical implementation progress
+- **Epic breakdown management** with dependency tracking
+- **Real-time project coordination** through GitHub CLI integration
 
 ## Educational Goals
 
