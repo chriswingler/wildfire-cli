@@ -16,6 +16,140 @@ from incident_reports import IncidentReportGenerator
 import asyncio
 
 
+class TeamTacticalChoicesView(discord.ui.View):
+    """Interactive button choices for team tactical decisions."""
+    
+    def __init__(self, game, fire_id, user_id):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.game = game
+        self.fire_id = fire_id
+        self.user_id = user_id
+    
+    @discord.ui.button(label='1 🚒 $2k', style=discord.ButtonStyle.primary, custom_id='deploy_team_crews')
+    async def deploy_crews(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your deployment!", ephemeral=True)
+            return
+            
+        result = self.game.deploy_team_resources(self.fire_id, self.user_id, "hand_crews", 1)
+        await self._handle_team_choice_result(interaction, "Ground Crews", result)
+    
+    @discord.ui.button(label='2 🚁 $5k', style=discord.ButtonStyle.danger, custom_id='deploy_team_air')
+    async def deploy_air(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your deployment!", ephemeral=True)
+            return
+            
+        result = self.game.deploy_team_resources(self.fire_id, self.user_id, "air_tankers", 1)
+        await self._handle_team_choice_result(interaction, "Air Support", result)
+    
+    @discord.ui.button(label='3 🚛 $3k', style=discord.ButtonStyle.secondary, custom_id='deploy_team_engines')
+    async def deploy_engines(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your deployment!", ephemeral=True)
+            return
+            
+        result = self.game.deploy_team_resources(self.fire_id, self.user_id, "engines", 1)
+        await self._handle_team_choice_result(interaction, "Engine Company", result)
+    
+    @discord.ui.button(label='4 🚜 $4k', style=discord.ButtonStyle.success, custom_id='deploy_team_dozers')
+    async def deploy_dozers(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your deployment!", ephemeral=True)
+            return
+            
+        result = self.game.deploy_team_resources(self.fire_id, self.user_id, "dozers", 1)
+        await self._handle_team_choice_result(interaction, "Dozer", result)
+    
+    async def _handle_team_choice_result(self, interaction, resource_name, result):
+        """Handle the result of a team tactical choice."""
+        try:
+            if result["success"]:
+                # Show auto-progression if it happened
+                auto = result.get("auto_progression")
+                auto_message = ""
+                if auto:
+                    if auto["budget_earned"] > 0:
+                        auto_message = f"\n\n📈 **TEAM BONUS: +${auto['budget_earned']}k budget!**\nExcellent team coordination!"
+                    else:
+                        auto_message = f"\n\n📉 **FIRE SPREADING!**\nTeam needs more suppression - deploy fast!"
+                
+                # Get current fire status after deployment
+                fire_status = self.game.get_fire_status(self.fire_id)
+                threat_emoji = "🔴" if fire_status['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if fire_status['threat_level'] == "MODERATE" else "🟢"
+                
+                message = f"""🚒 **{resource_name.upper()} DEPLOYED BY TEAM!**
+
+👤 **{interaction.user.display_name}** deployed {resource_name} to **{fire_status['incident_name']}**
+
+🔥 **TEAM FIRE STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres
+• **Containment:** {fire_status['containment_percent']}%
+• **Threat:** {threat_emoji} {fire_status['threat_level']} - {fire_status['threatened_structures']} structures at risk
+
+👥 **TEAM RESOURCES:**
+• **Ground Crews:** {fire_status['resources_deployed']['hand_crews']} units
+• **Engines:** {fire_status['resources_deployed']['engines']} units
+• **Air Support:** {fire_status['resources_deployed']['air_tankers']} units
+• **Dozers:** {fire_status['resources_deployed']['dozers']} units
+
+💰 **Team Budget:** ${fire_status['team_budget']}k remaining
+{auto_message}
+
+**Team members continue using `/respond` to deploy more resources!**"""
+                
+                # Check for mission accomplished (100% containment)
+                if fire_status["status"] == "contained":
+                    message = f"""🎉 **MISSION ACCOMPLISHED - TEAM SUCCESS!**
+
+🏆 **{fire_status['incident_name'].upper()} CONTAINED BY TEAM!**
+
+✅ **FINAL TEAM STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres
+• **Containment:** 100%
+• **Team Budget:** ${fire_status['team_budget']}k remaining
+
+🚒 **OUTSTANDING TEAMWORK!** Your coordinated effort successfully contained the fire!
+
+**Ready for the next challenge? Use `/fire` to start another team response!**"""
+                
+                elif fire_status["status"] == "critical_failure":
+                    message = f"""💥 **TEAM MISSION FAILED - FIRE OUT OF CONTROL!**
+
+🚨 **{fire_status['incident_name'].upper()} - EVACUATION ORDERED!**
+
+❌ **FINAL TEAM STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres (OVER 200 ACRES)
+• **Containment:** {fire_status['containment_percent']}%
+• **Team Budget:** ${fire_status['team_budget']}k remaining
+
+⚠️ **FIRE TOO LARGE** - Team coordination wasn't enough to stop the spread!
+
+**Learn and improve! Use `/fire` to try another team response.**"""
+                
+                await interaction.response.send_message(message)
+                
+            else:
+                # Not enough budget or other error
+                if "Insufficient team budget" in result.get("error", ""):
+                    message = f"""💰 **INSUFFICIENT TEAM BUDGET!**
+
+❌ **{resource_name} deployment failed**
+• **Cost:** ${result['cost']}k
+• **Team Budget:** ${result['budget']}k available
+
+**Team needs to coordinate better or wait for budget from fire suppression progress!**
+Use `/firestatus` to check current team resources."""
+                else:
+                    message = f"❌ **Deployment failed:** {result.get('error', 'Unknown error')}"
+                
+                await interaction.response.send_message(message, ephemeral=True)
+                
+        except Exception as e:
+            print(f"Error in team choice handling: {e}")
+            await interaction.response.send_message("❌ Error processing team deployment", ephemeral=True)
+
+
 class TacticalChoicesView(discord.ui.View):
     """Interactive button choices for tactical decisions."""
     
@@ -609,35 +743,47 @@ class SingleplayerGame:
 
 class WildfireGame:
     """
-    @brief Simple wildfire incident management for Discord
-    @details Minimal implementation following coding standards:
+    @brief Enhanced wildfire incident management for Discord
+    @details Enhanced implementation with real-time fire simulation:
     - Functions under 60 lines
     - Single responsibility
     - Descriptive naming
-    - Simple state management
+    - Real-time fire simulation with FireGrid
+    - Team coordination and auto-progression
     """
     
     def __init__(self):
         self.active_fires = {}
         self.player_assignments = {}
+        self.report_generator = IncidentReportGenerator()
         
     def create_fire(self, channel_id):
-        """Create new fire incident with basic properties."""
-        fire_id = f"fire_{int(time.time())}"
+        """Create new fire incident with full fire simulation."""
+        fire_id = f"guild_fire_{channel_id}_{int(time.time())}"
         
-        # Simple fire properties for immediate prototype
-        fire_types = ["grass", "forest", "interface"]
-        fire_type = random.choice(fire_types)
+        # Create realistic fire simulation
+        weather = WeatherConditions(
+            wind_speed=random.randint(5, 25),
+            wind_direction=random.choice(["N", "NE", "E", "SE", "S", "SW", "W", "NW"]),
+            humidity=random.randint(15, 60),
+            temperature=random.randint(70, 105)
+        )
+        
+        fire_grid = FireGrid()
+        fire_grid.initialize_random_fire(weather)
         
         fire_data = {
             "id": fire_id,
-            "type": fire_type,
-            "size_acres": random.randint(5, 50),
-            "containment": 0,
-            "threat_level": random.choice(["low", "moderate", "high"]),
+            "channel_id": channel_id,
+            "fire_grid": fire_grid,
+            "weather": weather,
             "responders": [],
+            "resources_deployed": {"hand_crews": 0, "engines": 0, "air_tankers": 0, "dozers": 0},
             "created_at": datetime.now().isoformat(),
-            "status": "active"
+            "next_progression": datetime.now() + timedelta(seconds=45),
+            "status": "active",
+            "team_budget": 50,  # Shared team budget
+            "incident_name": f"Guild Fire {fire_id[-4:]}"
         }
         
         self.active_fires[fire_id] = fire_data
@@ -660,19 +806,132 @@ class WildfireGame:
         return True
         
     def get_fire_status(self, fire_id):
-        """Get current fire status for reporting."""
+        """Get current fire status with full simulation data."""
         if fire_id not in self.active_fires:
             return None
             
         fire = self.active_fires[fire_id]
-        responder_count = len(fire["responders"])
+        stats = fire["fire_grid"].get_fire_statistics()
+        threats = fire["fire_grid"].get_threat_assessment()
         
-        # Simple progress simulation
-        if responder_count > 0:
-            containment_gain = min(responder_count * 15, 100 - fire["containment"])
-            fire["containment"] = min(fire["containment"] + containment_gain, 100)
+        return {
+            "id": fire_id,
+            "channel_id": fire["channel_id"],
+            "incident_name": fire["incident_name"],
+            "fire_size_acres": stats["fire_size_acres"],
+            "containment_percent": stats["containment_percent"],
+            "threat_level": threats["threat_level"],
+            "threatened_structures": threats["threatened_structures"],
+            "responders": fire["responders"],
+            "resources_deployed": fire["resources_deployed"],
+            "team_budget": fire["team_budget"],
+            "weather": stats["weather"],
+            "status": fire["status"]
+        }
+    
+    def deploy_team_resources(self, fire_id, player_id, resource_type, count):
+        """Deploy resources to guild fire with team coordination."""
+        if fire_id not in self.active_fires:
+            return {"success": False, "error": "Fire not found"}
             
-        return fire
+        fire = self.active_fires[fire_id]
+        
+        # Check if player is assigned to this fire
+        player_assigned = any(r["id"] == player_id for r in fire["responders"])
+        if not player_assigned:
+            return {"success": False, "error": "Player not assigned to this incident"}
+            
+        # Check team budget
+        resource_costs = {"hand_crews": 2, "engines": 3, "air_tankers": 5, "dozers": 4}
+        cost = resource_costs.get(resource_type, 5) * count
+        
+        if fire["team_budget"] < cost:
+            return {"success": False, "error": "Insufficient team budget", 
+                   "cost": cost, "budget": fire["team_budget"]}
+        
+        # Deploy resources
+        fire["team_budget"] -= cost
+        fire["resources_deployed"][resource_type] += count
+        
+        # Apply immediate suppression effect
+        suppression_values = {"hand_crews": 8, "engines": 6, "air_tankers": 15, "dozers": 10}
+        suppression = suppression_values.get(resource_type, 5) * count
+        fire["fire_grid"].apply_suppression(suppression)
+        
+        # Check for auto-progression trigger
+        auto_progression = None
+        if datetime.now() >= fire["next_progression"]:
+            auto_progression = self.auto_advance_guild_fire(fire_id)
+        
+        return {
+            "success": True,
+            "cost": cost,
+            "remaining_budget": fire["team_budget"],
+            "suppression_applied": suppression,
+            "auto_progression": auto_progression
+        }
+    
+    def auto_advance_guild_fire(self, fire_id):
+        """Automatically advance guild fire and calculate team performance."""
+        if fire_id not in self.active_fires:
+            return None
+            
+        fire = self.active_fires[fire_id]
+        
+        # Get stats before progression
+        old_stats = fire["fire_grid"].get_fire_statistics()
+        
+        # Apply suppression based on deployed resources
+        total_suppression = (
+            fire["resources_deployed"]["hand_crews"] * 25 +
+            fire["resources_deployed"]["engines"] * 18 + 
+            fire["resources_deployed"]["air_tankers"] * 40 +
+            fire["resources_deployed"]["dozers"] * 30
+        )
+        
+        fire["fire_grid"].apply_suppression(total_suppression)
+        fire["fire_grid"].advance_operational_period()
+        
+        # Get stats after progression
+        new_stats = fire["fire_grid"].get_fire_statistics()
+        
+        # Calculate team performance and award/deduct budget
+        containment_improvement = new_stats['containment_percent'] - old_stats['containment_percent']
+        size_growth = new_stats['fire_size_acres'] - old_stats['fire_size_acres']
+        
+        # Team EARNS budget for good performance
+        budget_earned = 0
+        if containment_improvement > 20:
+            budget_earned = 12  # Excellent team coordination
+        elif containment_improvement > 10:
+            budget_earned = 8   # Good team progress
+        elif containment_improvement > 0:
+            budget_earned = 5   # Some team progress
+        else:
+            budget_earned = 2   # Minimal progress
+            
+        # Lose budget for fire growth
+        if size_growth > 30:
+            budget_earned -= 4  # Fire grew significantly
+        elif size_growth > 15:
+            budget_earned -= 2  # Some growth
+            
+        fire["team_budget"] += max(budget_earned, 0)
+        fire["next_progression"] = datetime.now() + timedelta(seconds=45)
+        
+        # Check if fire is contained or critical
+        if fire["fire_grid"].is_contained():
+            fire["status"] = "contained"
+        elif new_stats['fire_size_acres'] >= 200:
+            fire["status"] = "critical_failure"
+            
+        return {
+            "containment_change": containment_improvement,
+            "size_change": size_growth,
+            "budget_earned": budget_earned,
+            "new_budget": fire["team_budget"],
+            "new_stats": new_stats
+        }
 
 
 class WildfireCommands(commands.Cog):
@@ -877,30 +1136,35 @@ class WildfireCommands(commands.Cog):
         
     async def _handle_multiplayer_fire(self, interaction: discord.Interaction):
         """Handle fire creation in Guild (multiplayer mode)."""
+        # Check if there's already an active fire in this channel
+        for fire_id, fire_data in self.game.active_fires.items():
+            if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
+                await interaction.response.send_message(
+                    f"❌ **{fire_data['incident_name']}** is already active in this channel!\n"
+                    f"Use `/respond` to join the team or `/firestatus` to check progress.",
+                    ephemeral=True
+                )
+                return
+                
         fire_data = self.game.create_fire(interaction.channel.id)
+        fire_status = self.game.get_fire_status(fire_data["id"])
         
-        embed = discord.Embed(
-            title="🔥 WILDFIRE INCIDENT REPORTED",
-            description=f"New {fire_data['type']} fire detected",
-            color=0xFF4500
-        )
+        message = f"""🚨 **WILDFIRE INCIDENT REPORTED**
+
+🔥 **{fire_status['incident_name'].upper()} - TEAM RESPONSE NEEDED**
+
+📍 **INCIDENT DETAILS:**
+• **Size:** {fire_status['fire_size_acres']} acres  
+• **Containment:** {fire_status['containment_percent']}%
+• **Threat:** {fire_status['threat_level']} - {fire_status['threatened_structures']} structures at risk
+• **Weather:** {fire_status['weather']['wind_speed']} mph winds, {fire_status['weather']['humidity']}% humidity
+
+💰 **Team Budget:** ${fire_status['team_budget']}k for coordinated response
+
+🚒 **Team members use `/respond` to join the incident response!**
+⚡ **Real-time fire progression** will begin automatically every 45 seconds!"""
         
-        embed.add_field(
-            name="📍 Incident Details",
-            value=f"**Fire ID:** {fire_data['id']}\n"
-                  f"**Size:** {fire_data['size_acres']} acres\n"
-                  f"**Threat Level:** {fire_data['threat_level'].upper()}\n"
-                  f"**Containment:** {fire_data['containment']}%",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🚒 Response Needed",
-            value="Use `/respond` to join the incident response team",
-            inline=False
-        )
-        
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(message)
         
     @discord.app_commands.command(name="respond", description="Respond to active wildfire incident")
     async def respond_command(self, interaction: discord.Interaction):
@@ -978,29 +1242,61 @@ class WildfireCommands(commands.Cog):
             
     async def _handle_multiplayer_respond(self, interaction: discord.Interaction):
         """Handle response assignment in Guild (multiplayer mode)."""
-        active_fire = self._find_active_guild_fire()
+        # Find active fire in this channel
+        active_fire = None
+        for fire_id, fire_data in self.game.active_fires.items():
+            if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
+                active_fire = fire_data
+                break
         
         if not active_fire:
             await interaction.response.send_message(
-                "❌ No active fires to respond to. Use `/fire` to create an incident.",
+                "❌ No active fire in this channel. Use `/fire` to create an incident.",
                 ephemeral=True
             )
             return
             
+        # Assign player to the fire if not already assigned
         success = self.game.assign_player(
             active_fire["id"],
             interaction.user.id, 
             interaction.user.display_name
         )
         
-        if success:
-            await interaction.response.send_message(
-                f"✅ {interaction.user.display_name} assigned to {active_fire['id']} as firefighter"
-            )
-        else:
-            await interaction.response.send_message(
-                "❌ Unable to assign to incident", ephemeral=True
-            )
+        if not success and interaction.user.id in self.game.player_assignments:
+            # Player already assigned, allow resource deployment
+            pass
+        
+        # Get current fire status for display
+        fire_status = self.game.get_fire_status(active_fire["id"])
+        if not fire_status:
+            await interaction.response.send_message("❌ Fire status unavailable", ephemeral=True)
+            return
+            
+        threat_emoji = "🔴" if fire_status['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if fire_status['threat_level'] == "MODERATE" else "🟢"
+        
+        message = f"""🚒 **TEAM RESOURCE DEPLOYMENT**
+
+{interaction.user.display_name} responding to **{fire_status['incident_name'].upper()}**
+
+🔥 **CURRENT STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres
+• **Containment:** {fire_status['containment_percent']}%
+• **Threat:** {threat_emoji} {fire_status['threat_level']} - {fire_status['threatened_structures']} structures at risk
+
+👥 **TEAM RESOURCES DEPLOYED:**
+• **Ground Crews:** {fire_status['resources_deployed']['hand_crews']} units
+• **Engines:** {fire_status['resources_deployed']['engines']} units  
+• **Air Support:** {fire_status['resources_deployed']['air_tankers']} units
+• **Dozers:** {fire_status['resources_deployed']['dozers']} units
+
+💰 **Team Budget:** ${fire_status['team_budget']}k remaining
+
+**Choose your tactical deployment:**"""
+
+        # Create team tactical choices view
+        view = TeamTacticalChoicesView(self.game, active_fire["id"], interaction.user.id)
+        await interaction.response.send_message(message, view=view)
             
         
     def _find_active_guild_fire(self):
@@ -1039,14 +1335,57 @@ class WildfireCommands(commands.Cog):
         
     async def _handle_multiplayer_status(self, interaction: discord.Interaction):
         """Handle status display in Guild (multiplayer mode)."""
-        if not self.game.active_fires:
+        # Find active fire in this channel
+        active_fire = None
+        for fire_id, fire_data in self.game.active_fires.items():
+            if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
+                active_fire = fire_data
+                break
+        
+        if not active_fire:
             await interaction.response.send_message(
-                "📍 No active fires currently", ephemeral=True
+                "📍 No active fires in this channel. Use `/fire` to create an incident.", ephemeral=True
             )
             return
             
-        embed = self._create_guild_status_embed()
-        await interaction.response.send_message(embed=embed)
+        # Get detailed fire status
+        fire_status = self.game.get_fire_status(active_fire["id"])
+        if not fire_status:
+            await interaction.response.send_message("❌ Fire status unavailable", ephemeral=True)
+            return
+            
+        threat_emoji = "🔴" if fire_status['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if fire_status['threat_level'] == "MODERATE" else "🟢"
+        responder_names = [r["name"] for r in fire_status["responders"]]
+        
+        message = f"""🔥 **TEAM INCIDENT STATUS REPORT**
+
+📋 **{fire_status['incident_name'].upper()}**
+
+🔥 **CURRENT FIRE STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres
+• **Containment:** {fire_status['containment_percent']}%
+• **Threat:** {threat_emoji} {fire_status['threat_level']} - {fire_status['threatened_structures']} structures at risk
+
+🌡️ **WEATHER CONDITIONS:**
+• **Wind:** {fire_status['weather']['wind_speed']} mph {fire_status['weather']['wind_direction']}
+• **Humidity:** {fire_status['weather']['humidity']}%
+• **Temperature:** {fire_status['weather']['temperature']}°F
+
+👥 **TEAM COORDINATION:**
+• **Responders:** {len(responder_names)} team members
+• **Team:** {', '.join(responder_names) if responder_names else 'None assigned'}
+
+🚒 **TEAM RESOURCES DEPLOYED:**
+• **Ground Crews:** {fire_status['resources_deployed']['hand_crews']} units
+• **Engines:** {fire_status['resources_deployed']['engines']} units
+• **Air Support:** {fire_status['resources_deployed']['air_tankers']} units
+• **Dozers:** {fire_status['resources_deployed']['dozers']} units
+
+💰 **Team Budget:** ${fire_status['team_budget']}k remaining
+
+**Team members use `/respond` to deploy additional resources!**"""
+        
+        await interaction.response.send_message(message)
         
         
     def _create_guild_status_embed(self):
@@ -1113,6 +1452,171 @@ class WildfireCommands(commands.Cog):
         await interaction.response.defer()
         await interaction.followup.send(dispatch_message, view=view)
         
+    @discord.app_commands.command(name="debugplayer2", description="🧪 [DEBUG] Simulate Player 2 for multiplayer testing")
+    async def debug_player2_command(self, interaction: discord.Interaction):
+        """Debug command to simulate Player 2 for testing multiplayer."""
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Debug commands only work in guild channels", ephemeral=True)
+            return
+            
+        # Find active fire in this channel
+        active_fire = None
+        for fire_id, fire_data in self.game.active_fires.items():
+            if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
+                active_fire = fire_data
+                break
+        
+        if not active_fire:
+            await interaction.response.send_message("❌ No active fire to join. Use `/fire` first.", ephemeral=True)
+            return
+            
+        # Simulate Player 2 joining (fake user ID)
+        fake_player2_id = interaction.user.id + 999999  # Create fake Player 2 ID
+        success = self.game.assign_player(
+            active_fire["id"],
+            fake_player2_id,
+            f"{interaction.user.display_name}-Player2"
+        )
+        
+        if success:
+            await interaction.response.send_message(
+                f"🧪 **DEBUG**: Simulated **{interaction.user.display_name}-Player2** joining the team!\n"
+                f"You can now test team coordination. Use `/debugp2deploy` to simulate Player 2 deployments."
+            )
+        else:
+            await interaction.response.send_message("❌ Unable to add Player 2", ephemeral=True)
+    
+    @discord.app_commands.command(name="debugp2deploy", description="🧪 [DEBUG] Deploy resources as simulated Player 2")
+    @discord.app_commands.describe(
+        resource="Resource type to deploy as Player 2",
+        count="Number of units to deploy"
+    )
+    @discord.app_commands.choices(resource=[
+        discord.app_commands.Choice(name="Ground Crews ($2k)", value="hand_crews"),
+        discord.app_commands.Choice(name="Air Support ($5k)", value="air_tankers"),
+        discord.app_commands.Choice(name="Engine Company ($3k)", value="engines"),
+        discord.app_commands.Choice(name="Dozer ($4k)", value="dozers")
+    ])
+    async def debug_p2_deploy_command(self, interaction: discord.Interaction, resource: str, count: int = 1):
+        """Debug command to deploy resources as simulated Player 2."""
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Debug commands only work in guild channels", ephemeral=True)
+            return
+            
+        # Find active fire in this channel
+        active_fire = None
+        for fire_id, fire_data in self.game.active_fires.items():
+            if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
+                active_fire = fire_data
+                break
+        
+        if not active_fire:
+            await interaction.response.send_message("❌ No active fire found", ephemeral=True)
+            return
+            
+        # Deploy as fake Player 2
+        fake_player2_id = interaction.user.id + 999999
+        result = self.game.deploy_team_resources(active_fire["id"], fake_player2_id, resource, count)
+        
+        resource_names = {
+            "hand_crews": "Ground Crews",
+            "air_tankers": "Air Support", 
+            "engines": "Engine Company",
+            "dozers": "Dozer"
+        }
+        
+        if result["success"]:
+            fire_status = self.game.get_fire_status(active_fire["id"])
+            message = f"""🧪 **DEBUG DEPLOYMENT - PLAYER 2**
+
+👤 **{interaction.user.display_name}-Player2** deployed {resource_names[resource]} x{count}
+
+🔥 **TEAM FIRE STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres  
+• **Containment:** {fire_status['containment_percent']}%
+
+👥 **TEAM RESOURCES DEPLOYED:**
+• **Ground Crews:** {fire_status['resources_deployed']['hand_crews']} units
+• **Engines:** {fire_status['resources_deployed']['engines']} units
+• **Air Support:** {fire_status['resources_deployed']['air_tankers']} units  
+• **Dozers:** {fire_status['resources_deployed']['dozers']} units
+
+💰 **Team Budget:** ${fire_status['team_budget']}k remaining
+
+**This simulates Player 2's deployment for testing team coordination!**"""
+            
+            await interaction.response.send_message(message)
+        else:
+            await interaction.response.send_message(
+                f"❌ **Player 2 deployment failed**: {result.get('error', 'Unknown error')}", ephemeral=True
+            )
+
+    @discord.app_commands.command(name="debugstatus", description="🧪 [DEBUG] Show detailed multiplayer debug info")
+    async def debug_status_command(self, interaction: discord.Interaction):
+        """Debug command to show detailed multiplayer state."""
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Debug commands only work in guild channels", ephemeral=True)
+            return
+            
+        # Find active fire in this channel
+        active_fire = None
+        for fire_id, fire_data in self.game.active_fires.items():
+            if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
+                active_fire = fire_data
+                break
+        
+        if not active_fire:
+            await interaction.response.send_message("❌ No active fire found", ephemeral=True)
+            return
+            
+        fire_status = self.game.get_fire_status(active_fire["id"])
+        next_progression = active_fire.get("next_progression", "Not set")
+        
+        message = f"""🧪 **DEBUG STATUS - MULTIPLAYER FIRE**
+
+📋 **Fire ID:** {active_fire['id']}
+📍 **Channel ID:** {active_fire['channel_id']}
+⏰ **Next Progression:** {next_progression}
+📊 **Status:** {active_fire['status']}
+
+👥 **Team Responders:**"""
+        
+        for responder in fire_status['responders']:
+            message += f"\n• **{responder['name']}** (ID: {responder['id']})"
+            
+        message += f"""
+
+🚒 **Resources Deployed:**
+• **Ground Crews:** {fire_status['resources_deployed']['hand_crews']} units  
+• **Engines:** {fire_status['resources_deployed']['engines']} units
+• **Air Support:** {fire_status['resources_deployed']['air_tankers']} units
+• **Dozers:** {fire_status['resources_deployed']['dozers']} units
+
+💰 **Team Budget:** ${fire_status['team_budget']}k
+🔥 **Fire Size:** {fire_status['fire_size_acres']} acres
+📈 **Containment:** {fire_status['containment_percent']}%
+
+**Auto-progression active every 45 seconds!**"""
+        
+        await interaction.response.send_message(message)
+
+    @discord.app_commands.command(name="debugclear", description="🧪 [DEBUG] Clear all guild fires for testing")
+    async def debug_clear_command(self, interaction: discord.Interaction):
+        """Debug command to clear all guild fires for clean testing."""
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Debug commands only work in guild channels", ephemeral=True)
+            return
+            
+        # Clear all active fires
+        cleared_count = len(self.game.active_fires)
+        self.game.active_fires.clear()
+        self.game.player_assignments.clear()
+        
+        await interaction.response.send_message(
+            f"🧪 **DEBUG**: Cleared {cleared_count} active guild fires.\n"
+            f"Ready for fresh multiplayer testing! Use `/fire` to create a new incident."
+        )
+
     @discord.app_commands.command(name="stop", description="🛑 End current session (DM only)")
     async def stop_command(self, interaction: discord.Interaction):
         """End current singleplayer session cleanly."""
@@ -1330,13 +1834,110 @@ Use `/stop` to see your performance report."""
         
         return message
     
+    async def _send_guild_fire_update(self, fire_id, auto_result):
+        """Send real-time fire update to all team members in guild channel."""
+        fire_data = self.game.active_fires.get(fire_id)
+        if not fire_data:
+            return
+            
+        # Get the guild channel
+        channel = self.bot.get_channel(fire_data["channel_id"])
+        if not channel:
+            return
+            
+        # Get current fire status
+        fire_status = self.game.get_fire_status(fire_id)
+        if not fire_status:
+            return
+            
+        # Create team update message
+        containment_change = auto_result["containment_change"]
+        size_change = auto_result["size_change"]
+        budget_earned = auto_result["budget_earned"]
+        
+        # Determine update type and emoji
+        if containment_change > 10:
+            status_emoji = "📈"
+            status_text = "**EXCELLENT TEAM COORDINATION!**"
+        elif containment_change > 0:
+            status_emoji = "🔥"
+            status_text = "**MAKING PROGRESS**"
+        else:
+            status_emoji = "🚨"
+            status_text = "**FIRE SPREADING - NEED MORE RESOURCES!**"
+            
+        # Budget feedback
+        budget_message = ""
+        if budget_earned > 0:
+            budget_message = f"📊 **Team earned +${budget_earned}k budget!** Great coordination!"
+        else:
+            budget_message = "💰 **No budget earned** - fire growth detected!"
+            
+        threat_emoji = "🔴" if fire_status['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if fire_status['threat_level'] == "MODERATE" else "🟢"
+        
+        update_message = f"""{status_emoji} **TEAM FIRE UPDATE - {fire_status['incident_name'].upper()}**
+
+{status_text}
+
+🔥 **CURRENT STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres ({size_change:+.1f} acres)
+• **Containment:** {fire_status['containment_percent']}% ({containment_change:+.1f}%)
+• **Threat:** {threat_emoji} {fire_status['threat_level']} - {fire_status['threatened_structures']} structures at risk
+
+👥 **TEAM RESOURCES:**
+• **Ground Crews:** {fire_status['resources_deployed']['hand_crews']} units
+• **Engines:** {fire_status['resources_deployed']['engines']} units  
+• **Air Support:** {fire_status['resources_deployed']['air_tankers']} units
+• **Dozers:** {fire_status['resources_deployed']['dozers']} units
+
+💰 **Team Budget:** ${fire_status['team_budget']}k remaining
+{budget_message}
+
+**Team members use `/respond` to deploy more resources!**"""
+
+        # Check for mission accomplished
+        if fire_status["status"] == "contained":
+            update_message = f"""🎉 **MISSION ACCOMPLISHED - FIRE CONTAINED!**
+
+🏆 **{fire_status['incident_name'].upper()} - TEAM SUCCESS!**
+
+✅ **FINAL STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres
+• **Containment:** 100% 
+• **Team Budget:** ${fire_status['team_budget']}k remaining
+
+🚒 **EXCELLENT TEAMWORK!** This fire has been successfully contained through coordinated team effort!
+
+**Ready for your next incident? Use `/fire` to start another team response!**"""
+            
+        elif fire_status["status"] == "critical_failure":
+            update_message = f"""💥 **CRITICAL FAILURE - FIRE OUT OF CONTROL!**
+
+🚨 **{fire_status['incident_name'].upper()} - EVACUATION ORDERED!**
+
+❌ **FINAL STATUS:**
+• **Size:** {fire_status['fire_size_acres']} acres (OVER 200 ACRES)
+• **Containment:** {fire_status['containment_percent']}%
+• **Team Budget:** ${fire_status['team_budget']}k remaining
+
+⚠️ **FIRE TOO LARGE TO CONTAIN** - Emergency evacuation protocols activated!
+
+**Learn from this experience! Use `/fire` to try another team response.**"""
+        
+        try:
+            await channel.send(update_message)
+        except discord.Forbidden:
+            print(f"Cannot send update to channel {fire_data['channel_id']} - permissions issue")
+        except Exception as e:
+            print(f"Error sending guild fire update: {e}")
+    
     async def _auto_progression_loop(self):
         """Background task that automatically progresses fires and sends updates."""
         while True:
             try:
                 await asyncio.sleep(10)  # Check every 10 seconds
                 
-                # Check all active user states
+                # Process singleplayer fires
                 for user_id, user_state in list(self.singleplayer_game.user_states.items()):
                     if user_state["game_phase"] != "active":
                         continue
@@ -1371,6 +1972,29 @@ Use `/stop` to see your performance report."""
                                 
                         except Exception as e:
                             print(f"Error in auto-progression for user {user_id}: {e}")
+                
+                # Process guild fires
+                for fire_id, fire_data in list(self.game.active_fires.items()):
+                    if fire_data["status"] != "active":
+                        continue
+                        
+                    next_progression = fire_data.get("next_progression")
+                    if not next_progression:
+                        continue
+                        
+                    # Check if it's time for auto-progression
+                    if datetime.now() >= next_progression:
+                        try:
+                            # Auto-advance the guild fire
+                            auto_result = self.game.auto_advance_guild_fire(fire_id)
+                            if not auto_result:
+                                continue
+                                
+                            # Send team updates to all responders
+                            await self._send_guild_fire_update(fire_id, auto_result)
+                                
+                        except Exception as e:
+                            print(f"Error in guild fire auto-progression for {fire_id}: {e}")
                             
             except Exception as e:
                 print(f"Error in auto-progression loop: {e}")
