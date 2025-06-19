@@ -99,7 +99,13 @@ class TacticalChoicesView(discord.ui.View):
                 
                 # Create new tactical choices view
                 view = TacticalChoicesView(self.singleplayer_game, self.user_id)
-                await interaction.response.send_message(message, view=view)
+                
+                # Use defer + followup for clean DM conversation (no reply chains)
+                if interaction.guild is None:
+                    await interaction.response.defer()
+                    await interaction.followup.send(message, view=view)
+                else:
+                    await interaction.response.send_message(message, view=view)
             else:
                 # Game over - no more budget
                 user_state = self.singleplayer_game.get_user_state(self.user_id)
@@ -120,10 +126,40 @@ class TacticalChoicesView(discord.ui.View):
 
 **🚀 Ready to try again?**"""
                 
-                await interaction.response.send_message(message)
+                # Use defer + followup for clean DM conversation (no reply chains)
+                if interaction.guild is None:
+                    await interaction.response.defer()
+                    await interaction.followup.send(message)
+                else:
+                    await interaction.response.send_message(message)
         except Exception as e:
             print(f"Error in _handle_choice_result: {e}")
-            await interaction.response.send_message(f"✅ {resource_name} deployed! Use `/firestatus` for details.", ephemeral=True)
+            # Show basic tactical update even on error
+            user_state = self.singleplayer_game.get_user_state(self.user_id)
+            stats = user_state["fire_grid"].get_fire_statistics()
+            threats = user_state["fire_grid"].get_threat_assessment()
+            
+            threat_emoji = "🔴" if threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
+            
+            message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
+
+🔥 **FIRE UPDATE:**
+• **Size:** {stats['fire_size_acres']} acres
+• **Containment:** {stats['containment_percent']}%
+• **Threat:** {threat_emoji} {threats['threat_level']}
+
+💰 **Budget:** ${user_state.get('budget', 10000):,} remaining
+
+**Continue fighting the fire:**"""
+            
+            view = TacticalChoicesView(self.singleplayer_game, self.user_id)
+            
+            # Use defer + followup for clean DM conversation (no reply chains)
+            if interaction.guild is None:
+                await interaction.response.defer()
+                await interaction.followup.send(message, view=view)
+            else:
+                await interaction.response.send_message(message, view=view)
     
     def _create_progression_message(self, result):
         """Create a message showing what changed from the previous action."""
@@ -808,9 +844,10 @@ class WildfireCommands(commands.Cog):
         user_state = self.singleplayer_game.get_user_state(interaction.user.id)
         
         if user_state["game_phase"] != "active":
-            await interaction.response.send_message(
-                "❌ No active incident. Use `/start` to begin a wildfire scenario.",
-                ephemeral=True
+            # Use defer + followup for clean DM conversation (no reply chains)
+            await interaction.response.defer()
+            await interaction.followup.send(
+                "🔥 **Ready for Action!**\n\nNo active wildfire incident. Use `/start` to begin your Incident Commander training!"
             )
             return
             
@@ -915,9 +952,10 @@ class WildfireCommands(commands.Cog):
         user_state = self.singleplayer_game.get_user_state(interaction.user.id)
         
         if user_state["game_phase"] == "ready":
-            await interaction.response.send_message(
-                "📍 No active incident. Use `/start` to begin a wildfire scenario.", 
-                ephemeral=True
+            # Use defer + followup for clean DM conversation (no reply chains)
+            await interaction.response.defer()
+            await interaction.followup.send(
+                "🔥 **Ready to Respond!**\n\nNo active wildfire incident to report. Use `/start` to begin your next Incident Commander scenario!"
             )
             return
             
@@ -999,7 +1037,10 @@ class WildfireCommands(commands.Cog):
         # Immediate dispatch - drop straight into the fire with readable text
         dispatch_message = await self._create_dispatch_message(interaction.user.id)
         view = TacticalChoicesView(self.singleplayer_game, interaction.user.id)
-        await interaction.response.send_message(dispatch_message, view=view)
+        
+        # Use defer + followup for clean DM conversation (no reply chains)
+        await interaction.response.defer()
+        await interaction.followup.send(dispatch_message, view=view)
         
     @discord.app_commands.command(name="stop", description="🛑 End current session (DM only)")
     async def stop_command(self, interaction: discord.Interaction):
@@ -1036,8 +1077,10 @@ class WildfireCommands(commands.Cog):
         stats = self.singleplayer_game.advance_operational_period(interaction.user.id)
         
         if not stats:
-            await interaction.response.send_message(
-                "❌ No active incident. Use `/start` to begin a scenario.", ephemeral=True
+            # Use defer + followup for clean DM conversation (no reply chains)
+            await interaction.response.defer()
+            await interaction.followup.send(
+                "🔥 **Ready for Command!**\n\nNo active incident to advance. Use `/start` to begin a wildfire scenario!"
             )
             return
             
@@ -1049,7 +1092,10 @@ class WildfireCommands(commands.Cog):
         # Send operational briefing as readable text with tactical choices
         briefing_message = await self._create_operational_message(interaction.user.id)
         view = TacticalChoicesView(self.singleplayer_game, interaction.user.id)
-        await interaction.response.send_message(briefing_message, view=view)
+        
+        # Use defer + followup for clean DM conversation (no reply chains)
+        await interaction.response.defer()
+        await interaction.followup.send(briefing_message, view=view)
         
         # Check if fire is contained
         user_state = self.singleplayer_game.get_user_state(interaction.user.id)
@@ -1082,13 +1128,16 @@ class WildfireCommands(commands.Cog):
         )
         
         if "No active incident" in report:
-            await interaction.response.send_message(
-                "❌ No active incident to report. Use `/start` to begin a scenario.", 
-                ephemeral=True
+            # Use defer + followup for clean DM conversation (no reply chains)
+            await interaction.response.defer()
+            await interaction.followup.send(
+                "🔥 **Ready for Reports!**\n\nNo active incident to report on. Use `/start` to begin your wildfire command scenario!"
             )
             return
             
-        await interaction.response.send_message(f"```{report}```")
+        # Use defer + followup for clean DM conversation (no reply chains)
+        await interaction.response.defer()
+        await interaction.followup.send(f"```{report}```")
         
     async def _create_dispatch_message(self, user_id) -> str:
         """Create readable text message for initial dispatch."""
