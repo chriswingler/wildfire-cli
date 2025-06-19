@@ -1,0 +1,319 @@
+name: 🚦 Code Quality Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '*.py'
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  coding_standards_check:
+    name: Coding Standards Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black mypy bandit safety
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Check coding standards compliance
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { exec } = require('child_process');
+            const util = require('util');
+            const execAsync = util.promisify(exec);
+            
+            // Read our coding standards for reference
+            const codingStandards = fs.readFileSync('./docs/coding_standards.md', 'utf8');
+            
+            let qualityReport = "## 🚦 Code Quality Gate Report\n\n";
+            qualityReport += `**Standards Reference**: [docs/coding_standards.md](https://github.com/chriswingler/wildfire-cli/blob/main/docs/coding_standards.md)\n\n`;
+            
+            let allPassed = true;
+            let issues = [];
+            
+            // 1. Code Formatting Check (Black)
+            try {
+              const { stdout, stderr } = await execAsync('black --check --diff src/ tests/ || true');
+              if (stderr || stdout.includes('would reformat')) {
+                allPassed = false;
+                issues.push({
+                  tool: "Black (Code Formatting)",
+                  status: "❌ FAIL",
+                  details: "Code formatting issues detected",
+                  fix: "Run `black src/ tests/` to auto-format"
+                });
+              } else {
+                issues.push({
+                  tool: "Black (Code Formatting)", 
+                  status: "✅ PASS",
+                  details: "Code formatting is consistent"
+                });
+              }
+            } catch (error) {
+              console.log('Black check error:', error.message);
+            }
+            
+            // 2. Style Guide Compliance (Flake8)
+            try {
+              const { stdout, stderr } = await execAsync('flake8 src/ tests/ --max-line-length=120 --extend-ignore=E203,W503 || true');
+              if (stdout.trim()) {
+                allPassed = false;
+                const errorCount = stdout.split('\n').filter(line => line.trim()).length;
+                issues.push({
+                  tool: "Flake8 (Style Guide)",
+                  status: "❌ FAIL", 
+                  details: `${errorCount} style violations detected`,
+                  fix: "Review flake8 output and fix style issues"
+                });
+              } else {
+                issues.push({
+                  tool: "Flake8 (Style Guide)",
+                  status: "✅ PASS",
+                  details: "No style violations found"
+                });
+              }
+            } catch (error) {
+              console.log('Flake8 check error:', error.message);
+            }
+            
+            // 3. Type Checking (MyPy) 
+            try {
+              const { stdout, stderr } = await execAsync('mypy src/ --ignore-missing-imports || true');
+              if (stdout.includes('error:')) {
+                allPassed = false;
+                const errorCount = (stdout.match(/error:/g) || []).length;
+                issues.push({
+                  tool: "MyPy (Type Checking)",
+                  status: "⚠️ WARN",
+                  details: `${errorCount} type issues detected`,
+                  fix: "Add type hints and fix type errors"
+                });
+              } else {
+                issues.push({
+                  tool: "MyPy (Type Checking)",
+                  status: "✅ PASS", 
+                  details: "No type errors found"
+                });
+              }
+            } catch (error) {
+              console.log('MyPy check error:', error.message);
+            }
+            
+            // 4. Security Check (Bandit)
+            try {
+              const { stdout, stderr } = await execAsync('bandit -r src/ -f json || true');
+              if (stdout.includes('"results"')) {
+                const results = JSON.parse(stdout);
+                if (results.results && results.results.length > 0) {
+                  const highSeverity = results.results.filter(r => r.issue_severity === 'HIGH').length;
+                  if (highSeverity > 0) {
+                    allPassed = false;
+                    issues.push({
+                      tool: "Bandit (Security)",
+                      status: "❌ FAIL",
+                      details: `${highSeverity} high-severity security issues found`,
+                      fix: "Review and fix security vulnerabilities"
+                    });
+                  } else {
+                    issues.push({
+                      tool: "Bandit (Security)",
+                      status: "⚠️ WARN", 
+                      details: `${results.results.length} minor security issues found`,
+                      fix: "Review security recommendations"
+                    });
+                  }
+                } else {
+                  issues.push({
+                    tool: "Bandit (Security)",
+                    status: "✅ PASS",
+                    details: "No security issues detected"
+                  });
+                }
+              }
+            } catch (error) {
+              console.log('Bandit check error:', error.message);
+            }
+            
+            // Build quality report
+            qualityReport += `### 🔍 Quality Checks\n\n`;
+            qualityReport += `| Tool | Status | Details |\n`;
+            qualityReport += `|------|--------|----------|\n`;
+            
+            for (const issue of issues) {
+              qualityReport += `| ${issue.tool} | ${issue.status} | ${issue.details} |\n`;
+            }
+            
+            qualityReport += `\n### 📋 Coding Standards Compliance\n\n`;
+            
+            if (allPassed) {
+              qualityReport += `🎉 **All quality checks passed!** This PR meets our coding standards.\n\n`;
+            } else {
+              qualityReport += `⚠️ **Some quality checks failed.** Please address the issues below:\n\n`;
+              
+              const failedChecks = issues.filter(i => i.status.includes('❌'));
+              for (const check of failedChecks) {
+                if (check.fix) {
+                  qualityReport += `- **${check.tool}**: ${check.fix}\n`;
+                }
+              }
+              qualityReport += `\n`;
+            }
+            
+            qualityReport += `### 📖 Coding Standards Reference\n\n`;
+            qualityReport += `Our coding standards emphasize:\n`;
+            qualityReport += `- **KISS, DRY, YAGNI** principles\n`;
+            qualityReport += `- **Functions**: Max 60 lines, single responsibility\n`;
+            qualityReport += `- **Files**: Max 1000 lines, logical organization\n`;
+            qualityReport += `- **Naming**: Descriptive and unambiguous\n`;
+            qualityReport += `- **Error Handling**: Proper exceptions with context\n`;
+            qualityReport += `- **Testing**: Comprehensive test coverage\n\n`;
+            
+            qualityReport += `### 🔧 Quick Fixes\n\n`;
+            qualityReport += `\`\`\`bash\n`;
+            qualityReport += `# Auto-format code\n`;
+            qualityReport += `black src/ tests/\n\n`;
+            qualityReport += `# Check style\n`;
+            qualityReport += `flake8 src/ tests/ --max-line-length=120\n\n`;
+            qualityReport += `# Type checking\n`;
+            qualityReport += `mypy src/ --ignore-missing-imports\n\n`;
+            qualityReport += `# Security scan\n`;
+            qualityReport += `bandit -r src/\n`;
+            qualityReport += `\`\`\`\n\n`;
+            
+            qualityReport += `---\n`;
+            qualityReport += `*Automated quality gate based on [docs/coding_standards.md](https://github.com/chriswingler/wildfire-cli/blob/main/docs/coding_standards.md)*`;
+            
+            // Create check run for quality gate
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Coding Standards Compliance',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: allPassed ? 'success' : 'failure',
+              output: {
+                title: allPassed ? '✅ All quality checks passed' : '❌ Quality issues detected',
+                summary: allPassed ? 
+                  'This PR meets all coding standards requirements.' : 
+                  'This PR has quality issues that need to be addressed.',
+                text: qualityReport
+              }
+            });
+            
+            // Post comment with quality report
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: qualityReport
+            });
+            
+            // Set action status
+            if (!allPassed) {
+              core.setFailed('Code quality checks failed. Please review the quality report.');
+            }
+
+  educational_content_review:
+    name: Educational Content Review
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, 'src/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Review educational value
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Check if this PR enhances educational value
+            let educationalReview = "## 🎓 Educational Content Review\n\n";
+            
+            const prTitle = context.payload.pull_request.title;
+            const prBody = context.payload.pull_request.body || '';
+            
+            // Educational criteria
+            let educationalScore = 0;
+            let feedback = [];
+            
+            // Check PR description for educational context
+            const educationalKeywords = [
+              'ics', 'incident command', 'wildfire', 'firefighting', 
+              'tactical', 'operational', 'educational', 'learning',
+              'authentic', 'realistic', 'training'
+            ];
+            
+            for (const keyword of educationalKeywords) {
+              if (prTitle.toLowerCase().includes(keyword) || prBody.toLowerCase().includes(keyword)) {
+                educationalScore++;
+              }
+            }
+            
+            if (educationalScore >= 2) {
+              feedback.push("✅ PR demonstrates clear educational value");
+            } else {
+              feedback.push("💡 Consider explaining the educational benefit of this change");
+            }
+            
+            // Check for authentic terminology usage
+            if (prBody.includes('ICS') || prBody.includes('incident command')) {
+              feedback.push("✅ Uses authentic wildfire management terminology");
+            }
+            
+            // Check for learning objective alignment
+            if (prBody.includes('learn') || prBody.includes('teach') || prBody.includes('understand')) {
+              feedback.push("✅ Explicitly addresses learning objectives");
+            }
+            
+            educationalReview += `### 📚 Educational Criteria Check\n\n`;
+            for (const item of feedback) {
+              educationalReview += `- ${item}\n`;
+            }
+            
+            educationalReview += `\n### 🎯 Educational Standards\n\n`;
+            educationalReview += `This project teaches authentic wildfire incident command:\n`;
+            educationalReview += `- **Real ICS protocols** and terminology\n`;
+            educationalReview += `- **Tactical decision-making** with consequences\n`;
+            educationalReview += `- **Resource management** principles\n`;
+            educationalReview += `- **Professional practices** from real emergency management\n\n`;
+            
+            educationalReview += `### 💡 Educational Enhancement Suggestions\n\n`;
+            educationalReview += `- Use authentic wildfire/ICS terminology in code and comments\n`;
+            educationalReview += `- Include educational context in complex algorithms\n`;
+            educationalReview += `- Explain real-world basis for game mechanics\n`;
+            educationalReview += `- Consider learning outcomes when designing features\n\n`;
+            
+            educationalReview += `---\n`;
+            educationalReview += `*Educational review ensures authentic learning value*`;
+            
+            // Only post if there are meaningful educational aspects to review
+            if (educationalScore > 0 || feedback.length > 1) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: educationalReview
+              });
+            }
+            
+            console.log(`Educational review completed (score: ${educationalScore})`);
