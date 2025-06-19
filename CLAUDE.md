@@ -178,6 +178,32 @@ mypy src/
 - **URL**: https://wildfire-discord-bot-27nzy.ondigitalocean.app
 - **Cost**: ~$5/month for basic deployment
 
+### Deployment Workflow
+
+**CRITICAL: Always commit and push before deploying**
+
+```bash
+# 1. Make code changes
+# 2. Test locally if possible
+# 3. Stage and commit changes
+git add .
+git commit -m "Description of changes
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# 4. Push to repository
+git push
+
+# 5. Deploy to DigitalOcean
+doctl apps create-deployment abd7b01b-a449-4108-ac1a-5c3825a20322
+
+# 6. Monitor deployment
+doctl apps get abd7b01b-a449-4108-ac1a-5c3825a20322
+doctl apps logs abd7b01b-a449-4108-ac1a-5c3825a20322 --type run --follow
+```
+
 ### Deployment Commands
 ```bash
 # Deploy new version
