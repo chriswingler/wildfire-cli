@@ -24,7 +24,7 @@ class TacticalChoicesView(discord.ui.View):
         self.singleplayer_game = singleplayer_game
         self.user_id = user_id
     
-    @discord.ui.button(label='1️⃣ Ground Crews (2pts)', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
+    @discord.ui.button(label='1️⃣ Ground Crews - Fast Attack (2pts)', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
     async def deploy_crews(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -33,7 +33,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "hand_crews", 1)
         await self._handle_choice_result(interaction, "Ground Crews", result)
     
-    @discord.ui.button(label='2️⃣ Air Support (5pts)', style=discord.ButtonStyle.danger, custom_id='deploy_air')
+    @discord.ui.button(label='2️⃣ Air Support - Heavy Power (5pts)', style=discord.ButtonStyle.danger, custom_id='deploy_air')
     async def deploy_air(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -42,7 +42,7 @@ class TacticalChoicesView(discord.ui.View):
         result = self.singleplayer_game.deploy_resources(self.user_id, "air_tankers", 1)
         await self._handle_choice_result(interaction, "Air Support", result)
     
-    @discord.ui.button(label='3️⃣ Engine Company (3pts)', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
+    @discord.ui.button(label='3️⃣ Engine Company - Balanced (3pts)', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
     async def deploy_engines(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
@@ -59,27 +59,47 @@ class TacticalChoicesView(discord.ui.View):
             auto_message = ""
             if auto:
                 if auto["points_earned"] > 0:
-                    auto_message = f"\n\n📈 **BONUS: +{auto['points_earned']} pts!** Good work!"
+                    auto_message = f"\n\n📈 **PERFORMANCE BONUS: +{auto['points_earned']} pts!**\nGreat containment work!"
                 else:
-                    auto_message = f"\n\n📉 **URGENT!** Fire spreading - act fast!"
+                    auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
+            
+            # Get tactical recommendations
+            user_state = self.singleplayer_game.get_user_state(self.user_id)
+            stats = user_state["fire_grid"].get_fire_statistics()
+            
+            # Tactical recommendation based on fire size
+            if stats['fire_size_acres'] > 50:
+                tactical_advice = "🚁 **TACTICAL ADVICE:** Large fire - Air Support most effective!"
+            elif stats['fire_size_acres'] < 30:
+                tactical_advice = "🚒 **TACTICAL ADVICE:** Small fire - Ground Crews cost-effective!"
+            else:
+                tactical_advice = "🚒 **TACTICAL ADVICE:** Balanced approach - Engine Company recommended!"
             
             message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
-**{resource_name} attacking fire immediately!**
+**Immediate suppression effect applied!**
+{resource_name} is attacking the fire right now.
 
-💰 **Spent:** -{result['cost']} pts (**{result['remaining_budget']} pts left**)
+💰 **Budget:** -{result['cost']} pts → **{result['remaining_budget']} pts remaining**
 {auto_message}
 
-⚡ **Deploy more resources to contain the fire!**"""
+{tactical_advice}
+
+**Deploy more resources to increase containment:**"""
+            
+            # Create new tactical choices view
+            view = TacticalChoicesView(self.singleplayer_game, self.user_id)
+            await interaction.response.send_message(message, view=view)
+            
         else:
             message = f"""❌ **INSUFFICIENT BUDGET**
 
 **Need {result['cost']} pts, have {result['budget']} pts**
 
-💡 **Good containment = more budget!**
-Try cheaper option 1️⃣ (2 pts)"""
-        
-        await interaction.response.send_message(message, ephemeral=True)
+💡 **EARN MORE POINTS:** Good containment = more budget!
+Try **Ground Crews** (2 pts) - most cost-effective option."""
+            
+            await interaction.response.send_message(message, ephemeral=True)
 
 
 class SingleplayerGame:
@@ -443,15 +463,15 @@ class WildfireCommands(commands.Cog):
         # Handle numbered choices
         if message.content.strip() in ["1", "1️⃣"]:
             result = self.singleplayer_game.deploy_resources(message.author.id, "hand_crews", 1)
-            await self._send_choice_response(message.channel, "Ground Crews", result)
+            await self._send_choice_response(message.channel, "Ground Crews", result, message.author.id)
         elif message.content.strip() in ["2", "2️⃣"]:
             result = self.singleplayer_game.deploy_resources(message.author.id, "air_tankers", 1)
-            await self._send_choice_response(message.channel, "Air Support", result)
+            await self._send_choice_response(message.channel, "Air Support", result, message.author.id)
         elif message.content.strip() in ["3", "3️⃣"]:
             result = self.singleplayer_game.deploy_resources(message.author.id, "engines", 1)
-            await self._send_choice_response(message.channel, "Engine Company", result)
+            await self._send_choice_response(message.channel, "Engine Company", result, message.author.id)
     
-    async def _send_choice_response(self, channel, resource_name, result):
+    async def _send_choice_response(self, channel, resource_name, result, user_id):
         """Send response for typed tactical choice."""
         if result["success"]:
             # Show auto-progression result if it happened
@@ -459,28 +479,47 @@ class WildfireCommands(commands.Cog):
             auto_message = ""
             if auto:
                 if auto["points_earned"] > 0:
-                    auto_message = f"\n\n📈 **PERFORMANCE BONUS: +{auto['points_earned']} pts!**\nContainment improved {auto['containment_change']:.0f}%"
+                    auto_message = f"\n\n📈 **PERFORMANCE BONUS: +{auto['points_earned']} pts!**\nGreat containment work!"
                 else:
-                    auto_message = f"\n\n📉 **FIRE SPREADING!**\nGrew {auto['size_change']:.0f} acres - act fast!"
+                    auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
+            
+            # Get tactical recommendations
+            user_state = self.singleplayer_game.get_user_state(user_id)
+            stats = user_state["fire_grid"].get_fire_statistics()
+            
+            # Tactical recommendation based on fire size
+            if stats['fire_size_acres'] > 50:
+                tactical_advice = "🚁 **TACTICAL ADVICE:** Large fire - Air Support most effective!"
+            elif stats['fire_size_acres'] < 30:
+                tactical_advice = "🚒 **TACTICAL ADVICE:** Small fire - Ground Crews cost-effective!"
+            else:
+                tactical_advice = "🚒 **TACTICAL ADVICE:** Balanced approach - Engine Company recommended!"
             
             message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
-**{resource_name} attacking fire immediately!**
-Suppression effect applied.
+**Immediate suppression effect applied!**
+{resource_name} is attacking the fire right now.
 
-💰 **Budget:** -{result['cost']} pts (Remaining: **{result['remaining_budget']} pts**)
+💰 **Budget:** -{result['cost']} pts → **{result['remaining_budget']} pts remaining**
 {auto_message}
 
-⚡ **Keep deploying resources to contain the fire!**"""
+{tactical_advice}
+
+**Deploy more resources to increase containment:**"""
+            
+            # Create new tactical choices view
+            view = TacticalChoicesView(self.singleplayer_game, user_id)
+            await channel.send(message, view=view)
+            
         else:
             message = f"""❌ **INSUFFICIENT BUDGET**
 
 **Need {result['cost']} pts, have {result['budget']} pts**
 
-💡 **Earn more points with good containment!**
-Try cheaper option **1** (Ground Crews - 2 pts)"""
-        
-        await channel.send(message)
+💡 **EARN MORE POINTS:** Good containment = more budget!
+Try **Ground Crews** (2 pts) - most cost-effective option."""
+            
+            await channel.send(message)
         
     @discord.app_commands.command(name="fire", description="Report a new wildfire incident")
     async def fire_command(self, interaction: discord.Interaction):
@@ -897,14 +936,23 @@ Try cheaper option **1** (Ground Crews - 2 pts)"""
 💰 **You have {user_state.get('budget', 15)} points** to fight this fire
 *Spend wisely - good containment earns more points!*
 
-**DEPLOY RESOURCES NOW:**
-1️⃣ **Ground Crews** (2 pts) - Fast attack teams
-2️⃣ **Air Support** (5 pts) - Heavy suppression power
-3️⃣ **Engine Company** (3 pts) - Balanced response
+**TACTICAL DEPLOYMENT OPTIONS:**
+
+1️⃣ **Ground Crews** (2 pts) - **FAST ATTACK**
+   • Quick response, cost-effective
+   • Best for: Small fires, initial attack
+
+2️⃣ **Air Support** (5 pts) - **HEAVY POWER** 
+   • Maximum suppression, expensive
+   • Best for: Large fires, difficult terrain
+
+3️⃣ **Engine Company** (3 pts) - **BALANCED OPTION**
+   • Moderate cost, reliable suppression
+   • Best for: Structure protection, sustained attack
 
 🎯 **GOAL:** Contain fire before it reaches 200 acres!
 
-**Click buttons above OR type 1, 2, or 3 to deploy!**"""
+**Click buttons below OR type 1, 2, or 3 to deploy!**"""
 
         return message
     
@@ -964,10 +1012,10 @@ Use `/stop` to see your performance report."""
 
 💰 **Budget: {user_state.get('budget', 10)} points**
 
-**DEPLOY MORE RESOURCES:**
-1️⃣ Ground Crews (2 pts)
-2️⃣ Air Support (5 pts) 
-3️⃣ Engines (3 pts)
+**TACTICAL OPTIONS:**
+1️⃣ **Ground Crews** (2 pts) - Fast attack
+2️⃣ **Air Support** (5 pts) - Heavy power 
+3️⃣ **Engine Company** (3 pts) - Balanced
 
 {time_left}
 
