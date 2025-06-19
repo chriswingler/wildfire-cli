@@ -31,13 +31,15 @@ Wildfire CLI is a text-based wildfire incident commander simulation game that te
 ```
 wildfire-cli/
 ├── src/
-│   ├── game/              # Core game logic and simulation
-│   ├── ui/                # Rich library interface components  
-│   └── scenarios/         # Game content and decision trees
-├── data/                  # Scenario configurations (JSON)
-├── tests/                 # Unit and integration tests
-├── docs/                  # Project documentation
-└── .github/               # GitHub automation and templates
+│   ├── discord_wildfire.py   # Discord bot with context-aware commands
+│   ├── game/                 # Core game logic and simulation
+│   ├── ui/                   # Rich library interface components  
+│   └── scenarios/            # Game content and decision trees
+├── data/                     # Scenario configurations (JSON)
+├── tests/                    # Unit and integration tests
+├── docs/                     # Project documentation
+├── .do/                      # DigitalOcean deployment configuration
+└── .github/                  # GitHub automation and templates
 ```
 
 ## Development Workflow
@@ -61,6 +63,34 @@ wildfire-cli/
 - Comment complex fire behavior algorithms and decision logic
 
 ## Core Components
+
+### Discord Bot Integration (`src/discord_wildfire.py`) 
+**Sprint 2 Implementation - Singleplayer DM Mode**
+
+#### Context-Aware Command System
+- **DM Detection**: Commands automatically detect DM vs Guild context using `interaction.guild is None`
+- **Dual Mode Support**: Same commands (`/fire`, `/respond`, `/firestatus`) work differently in each context
+- **Clean Routing**: Separate handler functions for singleplayer vs multiplayer modes
+
+#### Singleplayer Game Engine (`SingleplayerGame` class)
+- **User Isolation**: Personal game state completely separate from multiplayer
+- **Personal Fires**: Individual fire incidents with unique IDs (`personal_{user_id}_{timestamp}`)
+- **Solo Progress**: Independent containment and response tracking per user
+- **State Management**: Per-user fire tracking and assignment handling
+
+#### Debug Controls (DM-only commands)
+- `/clear` - Reset all personal game state for testing/development
+- `/start` - Begin new singleplayer scenario session
+- `/stop` - End current session cleanly with summary
+- **Context Protection**: Debug commands only work in DM context
+
+#### Commands Available
+- `/fire` - Create wildfire incident (context-aware: personal vs guild)
+- `/respond` - Join incident response (context-aware: solo vs team)  
+- `/firestatus` - Check incident status (context-aware: personal vs guild fires)
+- `/clear` - Reset personal state (DM only)
+- `/start` - Begin new session (DM only)
+- `/stop` - End session (DM only)
 
 ### Fire Simulation Engine (`src/game/fire_grid.py`)
 - Internal 6x6 or 8x8 cellular automata grid (never displayed)
@@ -114,8 +144,11 @@ wildfire-cli/
 # Install dependencies
 pip install -r requirements.txt
 
-# Run game
+# Run game locally
 python src/main.py
+
+# Run Discord bot locally  
+python src/discord_wildfire.py
 
 # Run tests
 pytest tests/ --cov=src --cov-report=term-missing
@@ -125,6 +158,36 @@ black src/
 flake8 src/
 mypy src/
 ```
+
+## Deployment
+
+### DigitalOcean App Platform
+**Current Status**: Deployed and Active
+- **App ID**: `abd7b01b-a449-4108-ac1a-5c3825a20322`
+- **Bot Name**: BlazeBot
+- **URL**: https://wildfire-discord-bot-27nzy.ondigitalocean.app
+- **Cost**: ~$5/month for basic deployment
+
+### Deployment Commands
+```bash
+# Deploy new version
+doctl apps create-deployment abd7b01b-a449-4108-ac1a-5c3825a20322 --wait
+
+# Check status
+doctl apps get abd7b01b-a449-4108-ac1a-5c3825a20322
+
+# View logs
+doctl apps logs abd7b01b-a449-4108-ac1a-5c3825a20322 --type run
+
+# Quick deploy script
+./deploy.sh
+```
+
+### Bot Features Live
+✅ **Multiplayer Mode** - Guild-based team firefighting  
+✅ **Singleplayer Mode** - DM-based solo training (Sprint 2)  
+✅ **Context-Aware Commands** - Same commands, different behavior  
+✅ **Debug Controls** - DM-only development tools
 
 ## GitHub Project Management
 
