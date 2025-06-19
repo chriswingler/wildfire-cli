@@ -63,6 +63,9 @@ class TacticalChoicesView(discord.ui.View):
                 else:
                     auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
             
+            # Generate progression comparison
+            progression_message = self._create_progression_message(result)
+            
             # Get current fire status after deployment
             user_state = self.singleplayer_game.get_user_state(self.user_id)
             stats = user_state["fire_grid"].get_fire_statistics()
@@ -72,6 +75,7 @@ class TacticalChoicesView(discord.ui.View):
             
             message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
+{progression_message}
 
 🔥 **CURRENT FIRE STATUS:**
 • **Size:** {stats['fire_size_acres']} acres
@@ -98,6 +102,36 @@ class TacticalChoicesView(discord.ui.View):
 Try **Ground Crews** (2 pts) - most cost-effective option."""
             
             await interaction.response.send_message(message, ephemeral=True)
+    
+    def _create_progression_message(self, result):
+        """Create a message showing what changed from the previous action."""
+        if not result.get("before_stats") or not result.get("after_stats"):
+            return ""
+            
+        before = result["before_stats"]
+        after = result["after_stats"]
+        
+        # Calculate changes
+        size_change = after['fire_size_acres'] - before['fire_size_acres']
+        containment_change = after['containment_percent'] - before['containment_percent']
+        
+        # Format changes with clear indicators
+        changes = []
+        
+        if size_change != 0:
+            size_emoji = "📉" if size_change < 0 else "📈" if size_change > 0 else "➡️"
+            size_text = f"decreased by {abs(size_change)}" if size_change < 0 else f"grew by {size_change}" if size_change > 0 else "stable"
+            changes.append(f"{size_emoji} **Fire size {size_text} acres**")
+        
+        if containment_change != 0:
+            contain_emoji = "📈" if containment_change > 0 else "📉"
+            contain_text = f"increased by {containment_change}%" if containment_change > 0 else f"decreased by {abs(containment_change)}%"
+            changes.append(f"{contain_emoji} **Containment {contain_text}**")
+        
+        if changes:
+            return f"\n⚡ **IMMEDIATE EFFECT:**\n" + "\n".join(f"   {change}" for change in changes) + "\n"
+        else:
+            return "\n⚡ **IMMEDIATE EFFECT:** Resources deployed, monitoring situation...\n"
 
 
 class SingleplayerGame:
@@ -161,6 +195,9 @@ class SingleplayerGame:
         
         if user_state["game_phase"] != "active":
             return {"success": False, "reason": "no_active_incident"}
+        
+        # Capture BEFORE state for comparison
+        old_stats = user_state["fire_grid"].get_fire_statistics() if user_state["fire_grid"] else None
             
         # Resource costs - SPENDING points on resources
         costs = {"hand_crews": 2, "engines": 3, "air_tankers": 5}
@@ -177,11 +214,16 @@ class SingleplayerGame:
             # Apply immediate suppression effect
             self._apply_immediate_suppression(user_state, resource_type, count)
             
+            # Capture AFTER state for comparison
+            new_stats = user_state["fire_grid"].get_fire_statistics()
+            
             return {
                 "success": True, 
                 "cost": cost, 
                 "remaining_budget": user_state["budget"],
-                "auto_progression": auto_result
+                "auto_progression": auto_result,
+                "before_stats": old_stats,
+                "after_stats": new_stats
             }
         
         return {"success": False, "reason": "invalid_resource"}
@@ -481,6 +523,10 @@ class WildfireCommands(commands.Cog):
                 else:
                     auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
             
+            # Create a TacticalChoicesView instance to use its progression method
+            view_helper = TacticalChoicesView(self.singleplayer_game, user_id)
+            progression_message = view_helper._create_progression_message(result)
+            
             # Get current fire status after deployment
             user_state = self.singleplayer_game.get_user_state(user_id)
             stats = user_state["fire_grid"].get_fire_statistics()
@@ -490,6 +536,7 @@ class WildfireCommands(commands.Cog):
             
             message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
+{progression_message}
 
 🔥 **CURRENT FIRE STATUS:**
 • **Size:** {stats['fire_size_acres']} acres
