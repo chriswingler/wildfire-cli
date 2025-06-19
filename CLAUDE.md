@@ -452,6 +452,182 @@ gh issue create --title "New Feature" --label "user-story,area: ui-ux,status: to
 4. **Code Review** → Move to `status: review`
 5. **Completed** → Move to `status: done` and close issue
 
+### Dynamic Kanban Management Rules - MANDATORY FOR CLAUDE
+
+**CRITICAL: Claude MUST actively manage the kanban board during ALL work sessions**
+
+#### Core Board Management Requirements
+- **Real-time Updates**: Update ticket status immediately when starting, pausing, or completing work
+- **Liberal Task Creation**: Create tickets for ANY non-trivial work (>15 minutes estimated)
+- **Frequent Board Activity**: User should see kanban changes throughout work sessions
+- **Granular Tracking**: Break large tasks into smaller, trackable subtasks
+- **Status Transparency**: Board status must reflect actual work state at all times
+
+#### When Claude MUST Create New Issues
+- **Feature Development**: Any new feature or enhancement work
+- **Bug Fixes**: Any bug investigation or resolution work
+- **Research Tasks**: Technical research, exploration, or analysis
+- **Refactoring Work**: Code cleanup, optimization, or restructuring
+- **Documentation**: Writing or updating documentation
+- **Testing**: Creating or updating tests
+- **Configuration**: Environment, deployment, or setup changes
+- **Subtasks**: Breaking down complex work into manageable pieces
+
+#### Required Status Update Triggers
+- **Work Start**: Move ticket to `status: in-progress` when beginning work
+- **Work Pause**: Comment with current progress when pausing/switching tasks
+- **Blocking Issues**: Update status and comment when blocked or waiting
+- **Work Complete**: Move to `status: review` or `status: done` immediately
+- **Scope Changes**: Update ticket description when scope or approach changes
+- **New Discoveries**: Create new tickets for discovered work
+
+#### Project Board Commands (Claude Must Use Frequently)
+```bash
+# REQUIRED: Mark task as in-progress when starting work
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 47fc9ee4
+
+# REQUIRED: Mark task as done when completing work  
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 98236657
+
+# REQUIRED: Create new task for any non-trivial work
+gh issue create --title "Task Title" --body "Description" --label "area: [work-stream],status: in-progress,iteration: current"
+
+# REQUIRED: Add new tasks to project board immediately
+gh project item-add 5 --owner chriswingler --url https://github.com/chriswingler/wildfire-cli/issues/ISSUE_NUMBER
+
+# REQUIRED: Update task status when work state changes
+gh issue comment ISSUE_NUMBER "Progress update: [current status and next steps]"
+
+# REQUIRED: Close completed tasks with summary
+gh issue close ISSUE_NUMBER --comment "Completed: [summary of work done and results]"
+```
+
+#### Board Activity Expectations
+- **Multiple Updates Per Session**: 3-5 board updates during typical work session
+- **Granular Task Breakdown**: Large tasks broken into 2-4 hour chunks
+- **Progress Comments**: Regular progress updates on in-progress tickets
+- **Immediate Status Changes**: No delay between work state and board state
+- **Proactive Task Creation**: Create tickets before starting work, not after
+
+#### Status Field Reference
+- **Todo Status ID**: `f75ad846` (purple - ready to start)
+- **In Progress Status ID**: `47fc9ee4` (yellow - currently working)  
+- **Done Status ID**: `98236657` (green - completed work)
+- **Project ID**: `PVT_kwHOAhw3ec4A73sX` (Wildfire CLI Kanban Board)
+- **Status Field ID**: `PVTSSF_lAHOAhw3ec4A73sXzgwCjN0` (Status field)
+
+#### Real-time Board Management Examples
+```bash
+# Starting work on a feature
+gh issue create --title "Implement fire spread algorithm optimization" --label "area: game-engine,status: in-progress,iteration: current"
+gh project item-add 5 --owner chriswingler --url https://github.com/chriswingler/wildfire-cli/issues/NEW_ISSUE
+
+# Discovering additional work needed
+gh issue create --title "Add unit tests for fire spread optimization" --label "area: game-engine,status: todo,iteration: current"
+
+# Completing work with detailed summary
+gh issue close 123 --comment "Completed: Fire spread algorithm optimized. Performance improved by 40%. All tests passing. Ready for deployment."
+
+# Moving to next task
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id NEXT_ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 47fc9ee4
+```
+
+**RESULT: User will see live kanban board activity as Claude works, providing complete transparency into development progress and current focus areas.**
+
+#### Bidirectional Kanban Interaction - MANDATORY
+
+**CRITICAL: Claude MUST detect and respond to user-initiated board changes**
+
+#### Session Startup Board Assessment
+- **REQUIRED**: Check current board state at the start of every work session
+- **REQUIRED**: Compare board state with previous session expectations
+- **REQUIRED**: Acknowledge any user changes, moves, or reorganizations
+- **REQUIRED**: Ask for clarification when user changes impact planned work
+- **REQUIRED**: Adapt work priorities based on user board manipulation
+
+#### Detecting User Signals Through Board Changes
+Claude must recognize these user communication patterns:
+
+**User Moves Task to "In Progress"**: 
+- User is requesting Claude work on this task immediately
+- Claude should acknowledge and either start work or explain any blockers
+
+**User Moves Task Between Columns**: 
+- User is signaling priority or status changes
+- Claude should acknowledge the change and adjust planning accordingly
+
+**User Edits Task Description/Title**:
+- User is changing scope, requirements, or approach
+- Claude should read changes and confirm understanding
+
+**User Adds Comments to Tasks**:
+- User is providing guidance, feedback, or new requirements
+- Claude should respond to comments and incorporate feedback
+
+**User Changes Task Labels/Iteration**:
+- User is reorganizing priorities or sprint planning
+- Claude should acknowledge and adapt work planning
+
+#### Required User Change Response Patterns
+```bash
+# REQUIRED: Check board state at session start
+gh project item-list 5 --owner chriswingler --format json | jq -r '.items[] | select(.status == "In Progress") | .content.title'
+
+# REQUIRED: Acknowledge user priority changes
+gh issue comment ISSUE_NUMBER "Acknowledged: User moved this task to high priority. Adjusting work plan accordingly."
+
+# REQUIRED: Respond to user task assignments
+gh issue comment ISSUE_NUMBER "Starting work: User moved this task to in-progress. Beginning implementation now."
+
+# REQUIRED: Confirm scope changes
+gh issue comment ISSUE_NUMBER "Scope update noted: [summarize user changes]. Confirming new approach: [plan]."
+```
+
+#### Collaborative Decision Making Through Board State
+The kanban board becomes a communication channel where:
+
+**User Actions Signal Intent**:
+- Moving task up in priority = "work on this next"
+- Moving task to in-progress = "start this now"  
+- Editing description = "change approach or scope"
+- Adding comments = "here's guidance or feedback"
+- Changing iteration = "this belongs in different sprint"
+
+**Claude Responses Confirm Understanding**:
+- Acknowledge user changes immediately
+- Ask clarifying questions when changes create conflicts
+- Provide status updates on user-requested work
+- Suggest alternatives when user requests conflict with technical constraints
+- Keep user informed about impact of their changes
+
+#### Session Startup Workflow Example
+```bash
+# 1. Check for any in-progress tasks (user may have moved something)
+gh project item-list 5 --owner chriswingler --format json | jq '.items[] | select(.fieldValues[] | select(.field.name == "Status" and .name == "In Progress"))'
+
+# 2. Check for recent comments or changes
+gh issue list --state open --limit 10 --json number,title,updatedAt,comments
+
+# 3. Acknowledge any user changes found
+gh issue comment ISSUE_NUMBER "Session startup: Detected user changes to board. Adapting work plan to prioritize user-moved tasks."
+
+# 4. Proceed with work based on current board state
+```
+
+#### User Communication Examples
+
+**Scenario 1: User moves task to "In Progress"**
+- Claude: "Detected: User moved 'Fix Discord embed formatting' to in-progress. Starting work on this task immediately."
+- Claude: Creates implementation subtasks, updates progress, completes work
+
+**Scenario 2: User edits task description** 
+- Claude: "Scope change detected: User updated requirements for mobile responsiveness. New approach: [summarized plan]. Proceeding with updated implementation."
+
+**Scenario 3: User changes iteration labels**
+- Claude: "Sprint reorganization detected: User moved 3 tasks from Sprint 5 to current iteration. Adjusting capacity planning and work priorities."
+
+**RESULT: True collaborative project management where user and Claude communicate through board state changes, creating seamless workflow coordination.**
+
 ### Sprint Planning Process
 - **Claude manages sprint planning issues** with velocity tracking
 - **Auto-close completed issues** with detailed completion summaries
