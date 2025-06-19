@@ -456,6 +456,15 @@ gh issue create --title "New Feature" --label "user-story,area: ui-ux,status: to
 
 **CRITICAL: Claude MUST actively manage the kanban board during ALL work sessions**
 
+#### 🚨 SESSION STARTUP REQUIREMENTS
+**MANDATORY FIRST STEP**: Check for statusless items before any other work:
+```bash
+# REQUIRED: Run this command at start of EVERY session
+gh project item-list 5 --owner chriswingler --limit 100 --format json | jq -r '.items[] | select(.status == null) | "\(.id)|\(.content.title)"' | wc -l
+
+# If ANY statusless items found: FIX IMMEDIATELY before proceeding with other work
+```
+
 #### Core Board Management Requirements
 - **Real-time Updates**: Update ticket status immediately when starting, pausing, or completing work
 - **Liberal Task Creation**: Create tickets for ANY non-trivial work (>15 minutes estimated)
@@ -473,6 +482,8 @@ gh issue create --title "New Feature" --label "user-story,area: ui-ux,status: to
 - **Configuration**: Environment, deployment, or setup changes
 - **Subtasks**: Breaking down complex work into manageable pieces
 
+**⚠️ CRITICAL: ALL new issues MUST be created with status labels - NEVER create issues without status assignment!**
+
 #### Required Status Update Triggers
 - **Work Start**: Move ticket to `status: in-progress` when beginning work
 - **Work Pause**: Comment with current progress when pausing/switching tasks
@@ -489,8 +500,10 @@ gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id P
 # REQUIRED: Mark task as done when completing work  
 gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 98236657
 
-# REQUIRED: Create new task for any non-trivial work
+# REQUIRED: Create new task for any non-trivial work (ALWAYS with status!)
 gh issue create --title "Task Title" --body "Description" --label "area: [work-stream],status: in-progress,iteration: current"
+
+# ⚠️ CRITICAL: NEVER create issues without status - always include status in labels!
 
 # REQUIRED: Add new tasks to project board immediately
 gh project item-add 5 --owner chriswingler --url https://github.com/chriswingler/wildfire-cli/issues/ISSUE_NUMBER
@@ -509,12 +522,96 @@ gh issue close ISSUE_NUMBER --comment "Completed: [summary of work done and resu
 - **Immediate Status Changes**: No delay between work state and board state
 - **Proactive Task Creation**: Create tickets before starting work, not after
 
-#### Status Field Reference
-- **Todo Status ID**: `f75ad846` (purple - ready to start)
-- **In Progress Status ID**: `47fc9ee4` (yellow - currently working)  
-- **Done Status ID**: `98236657` (green - completed work)
+#### ⚠️ MANDATORY STATUS ASSIGNMENT - NO EXCEPTIONS
+
+**CRITICAL RULE: Every task MUST have a status assigned - NEVER allow "No Status" items**
+
+#### Mandatory Status Assignment Requirements
+- **100% Status Coverage**: Every task created must immediately receive a status
+- **No "No Status" Column**: The "No Status" column should NEVER contain items
+- **Real-time Assignment**: Status must be assigned within seconds of task creation
+- **Automatic Prevention**: Use labels and automation to prevent statusless tasks
+- **Board Hygiene**: Regular audits to catch and fix any statusless items
+
+#### Required Status Assignment Workflow
+```bash
+# MANDATORY: Always assign status when creating tasks
+gh issue create --title "Task Title" --body "Description" --label "area: [work-stream],status: todo,iteration: current"
+
+# MANDATORY: Immediately assign status to any existing statusless tasks
+gh project item-list 5 --owner chriswingler --limit 100 --format json | jq -r '.items[] | select(.status == null) | "\(.id)|\(.content.title)"'
+
+# MANDATORY: Fix statusless items immediately when found
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id [STATUS_ID]
+```
+
+#### Status Assignment Decision Matrix
+- **New Ideas/Future Work**: `📋 Backlog` (`e8531425`)
+- **Well-Defined & Ready**: `🎯 Ready` (`79a33717`)  
+- **Currently Working**: `🔄 In Progress` (`220d888e`)
+- **Needs Testing/Review**: `🔍 Review` (`999d0281`)
+- **Implementation Complete**: `✅ Done` (`96476e3e`)
+- **Live in Production**: `🚀 Deployed` (`8ee3614d`)
+
+#### Default Status Assignment Rules
+- **Brainstorming/Ideas**: Default to `📋 Backlog`
+- **Sprint Tasks**: Default to `🎯 Ready` 
+- **Active Work**: Immediately move to `🔄 In Progress`
+- **Bug Reports**: Default to `🎯 Ready` (if actionable) or `📋 Backlog` (if not urgent)
+- **Completed Work**: Immediately move to `✅ Done` or `🚀 Deployed`
+
+#### Board Hygiene Enforcement
+```bash
+# MANDATORY: Check for statusless items at session start
+STATUSLESS_COUNT=$(gh project item-list 5 --owner chriswingler --limit 100 --format json | jq -r '.items[] | select(.status == null)' | wc -l)
+if [ "$STATUSLESS_COUNT" -gt 0 ]; then
+    echo "❌ CRITICAL: $STATUSLESS_COUNT tasks without status found - fixing immediately"
+    # Fix all statusless items before proceeding with other work
+fi
+
+# MANDATORY: Audit board weekly for process improvements
+gh project item-list 5 --owner chriswingler --limit 100 --format json | jq -r '.items[] | "\(.status) | \(.content.title)"' | sort | uniq -c
+```
+
+#### Zero Tolerance Policy
+- **No statusless tasks allowed EVER**
+- **Immediate correction required when found**
+- **Process failure when "No Status" column has items**
+- **Board hygiene is non-negotiable project standard**
+
+#### Field Reference - Enhanced Kanban Board
+
+**Project Information:**
 - **Project ID**: `PVT_kwHOAhw3ec4A73sX` (Wildfire CLI Kanban Board)
-- **Status Field ID**: `PVTSSF_lAHOAhw3ec4A73sXzgwCjN0` (Status field)
+
+**Status Field** (`PVTSSF_lAHOAhw3ec4A73sXzgwCjN0`) - OPTIMIZED 6-COLUMN WORKFLOW:
+- **📋 Backlog**: `e8531425` (purple - future/undefined tasks awaiting planning)
+- **🎯 Ready**: `79a33717` (blue - well-defined tasks ready to start work)
+- **🔄 In Progress**: `220d888e` (yellow - tasks currently being worked on)
+- **🔍 Review**: `999d0281` (orange - code review and testing needed)
+- **✅ Done**: `96476e3e` (green - implementation complete)
+- **🚀 Deployed**: `8ee3614d` (red - live in production)
+
+**Priority Field** (`PVTSSF_lAHOAhw3ec4A73sXzgwCsfE`):
+- **🔴 High**: `4fc90dfd` (urgent tasks requiring immediate attention)
+- **🟡 Medium**: `142144d8` (important tasks for current sprint)
+- **🟢 Low**: `02ee54e0` (future tasks and nice-to-have features)
+
+**Story Points Field** (`PVTSSF_lAHOAhw3ec4A73sXzgwCsfg`):
+- **1**: `67fbe060` (trivial task, 1-2 hours)
+- **2**: `e77c913c` (small task, 2-4 hours)
+- **3**: `56fdd7a0` (medium task, 4-8 hours)
+- **5**: `295144b8` (large task, 1-2 days)
+- **8**: `a3e8ef1f` (very large task, 2-3 days)
+- **13**: `49714513` (epic-sized task, 1 week+)
+
+**Workflow Stage Field** (`PVTSSF_lAHOAhw3ec4A73sXzgwCsiY`):
+- **📋 Backlog**: `6456d3de` (future/undefined tasks awaiting planning)
+- **🎯 Ready**: `118de8ea` (well-defined tasks ready to start)
+- **🔄 In Progress**: `8c9956c9` (tasks currently being worked on)
+- **🔍 Review**: `5e3b8bb3` (code review and testing needed)
+- **✅ Done**: `2a2bdd21` (implementation complete)
+- **🚀 Deployed**: `43ef1ad8` (live in production)
 
 #### Real-time Board Management Examples
 ```bash
@@ -627,6 +724,119 @@ gh issue comment ISSUE_NUMBER "Session startup: Detected user changes to board. 
 - Claude: "Sprint reorganization detected: User moved 3 tasks from Sprint 5 to current iteration. Adjusting capacity planning and work priorities."
 
 **RESULT: True collaborative project management where user and Claude communicate through board state changes, creating seamless workflow coordination.**
+
+#### Enhanced Board Management Commands (UPDATED WITH NEW COLUMNS)
+
+**BREAKTHROUGH**: Successfully added enhanced columns programmatically using \`updateProjectV2Field\`!
+
+**Move Tasks Through Optimized 6-Column Workflow:**
+```bash
+# Move task to Backlog (future/undefined tasks)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id e8531425
+
+# Move task to Ready (well-defined, ready to start)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 79a33717
+
+# Move task to In Progress (active work)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 220d888e
+
+# Move task to Review (code review/testing needed)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 999d0281
+
+# Move task to Done (implementation complete)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 96476e3e
+
+# Move task to Deployed (live in production)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCjN0 --single-select-option-id 8ee3614d
+```
+
+**Set Priority for Tasks:**
+```bash
+# Set task to High Priority
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCsfE --single-select-option-id 4fc90dfd
+
+# Set task to Medium Priority  
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCsfE --single-select-option-id 142144d8
+```
+
+**Set Story Points for Velocity Tracking:**
+```bash
+# Set task to 3 story points (medium task, 4-8 hours)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCsfg --single-select-option-id 56fdd7a0
+
+# Set task to 5 story points (large task, 1-2 days)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCsfg --single-select-option-id 295144b8
+```
+
+**Use Enhanced Workflow Pipeline:**
+```bash
+# Move task to Ready (well-defined, ready to start)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCsiY --single-select-option-id 118de8ea
+
+# Move task to Review (code review/testing needed)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCsiY --single-select-option-id 5e3b8bb3
+
+# Move task to Deployed (live in production)
+gh project item-edit --project-id PVT_kwHOAhw3ec4A73sX --id ITEM_ID --field-id PVTSSF_lAHOAhw3ec4A73sXzgwCsiY --single-select-option-id 43ef1ad8
+```
+
+#### Kanban Workflow Troubleshooting (CRITICAL FIXES)
+
+**Issue: Project Items Not Adding to Board**
+- Problem: `gh project item-add` succeeds but items don't appear on board
+- Fix: Wait 5+ seconds after adding, verify with item count check
+- Workaround: Use GitHub web interface to manually add items
+
+**Issue: Project Item IDs Not Found**  
+- Problem: Status update commands fail with "node not found" errors
+- Fix: Use most recent item listing and verify IDs before updating
+- Workaround: Use GitHub web interface to manually move items
+
+**Issue: Active Task Tracking Failures**
+- Problem: Current work not visible in "In Progress" column
+- Fix: Always verify status updates completed successfully
+- Workaround: Manually move tasks via web interface when CLI fails
+
+**Manual Fallback Procedure:**
+1. Open GitHub project board in web browser
+2. Manually drag tasks to appropriate columns
+3. Use web interface to set Priority and Story Points fields
+4. Add comments to issues for progress tracking
+5. Return to CLI when board state is correct
+
+**CRITICAL**: When CLI fails, always use manual workaround to maintain board transparency
+
+#### Board Layout Configuration (MANUAL REQUIRED)
+
+**GitHub API Limitation**: Board view configuration cannot be done programmatically. Manual setup required via web interface.
+
+**To Enable Enhanced 6-Column Workflow:**
+1. Open project board: https://github.com/users/chriswingler/projects/5
+2. Click View Options (⋯) in top right corner
+3. Select "Group by" → "Workflow Stage" (instead of Status)
+4. Result: 6-column enhanced pipeline:
+   ```
+   📋 Backlog | 🎯 Ready | 🔄 In Progress | 🔍 Review | ✅ Done | 🚀 Deployed
+   ```
+
+**Additional Recommended Views:**
+- **Sprint View**: Group by Labels (filter: iteration: current/next/future)
+- **Priority View**: Group by Priority field (High/Medium/Low)
+- **Work Stream View**: Group by Labels (filter: area: ui-ux/game-engine/content/infrastructure)
+- **Epic View**: Filter by Labels (epic only)
+
+**Task Migration After Layout Change:**
+- Current Sprint 4 tasks → 🎯 Ready or 🔄 In Progress
+- Future sprint tasks → 📋 Backlog  
+- Completed work → ✅ Done or 🚀 Deployed
+- Add Priority and Story Points to all tasks for better organization
+
+**Enhanced Board Benefits After Configuration:**
+- Clear workflow progression with quality gates
+- Priority-based task organization
+- Velocity tracking through story points
+- Multiple perspectives through different views
+- Professional development pipeline
 
 ### Sprint Planning Process
 - **Claude manages sprint planning issues** with velocity tracking
