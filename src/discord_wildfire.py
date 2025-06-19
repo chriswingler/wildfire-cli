@@ -15,6 +15,74 @@ from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
 
 
+class TacticalChoicesView(discord.ui.View):
+    """Interactive button choices for tactical decisions."""
+    
+    def __init__(self, singleplayer_game, user_id):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.singleplayer_game = singleplayer_game
+        self.user_id = user_id
+    
+    @discord.ui.button(label='1️⃣ Ground Crews (2pts)', style=discord.ButtonStyle.primary, custom_id='deploy_crews')
+    async def deploy_crews(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
+            return
+            
+        result = self.singleplayer_game.deploy_resources(self.user_id, "hand_crews", 1)
+        await self._handle_choice_result(interaction, "Ground Crews", result)
+    
+    @discord.ui.button(label='2️⃣ Air Support (5pts)', style=discord.ButtonStyle.danger, custom_id='deploy_air')
+    async def deploy_air(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
+            return
+            
+        result = self.singleplayer_game.deploy_resources(self.user_id, "air_tankers", 1)
+        await self._handle_choice_result(interaction, "Air Support", result)
+    
+    @discord.ui.button(label='3️⃣ Engine Company (3pts)', style=discord.ButtonStyle.secondary, custom_id='deploy_engines')
+    async def deploy_engines(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ This isn't your incident!", ephemeral=True)
+            return
+            
+        result = self.singleplayer_game.deploy_resources(self.user_id, "engines", 1)
+        await self._handle_choice_result(interaction, "Engine Company", result)
+    
+    async def _handle_choice_result(self, interaction, resource_name, result):
+        """Handle the result of a tactical choice."""
+        if result["success"]:
+            embed = discord.Embed(
+                title=f"🚒 {resource_name} DEPLOYED", 
+                description=f"**Good call, Commander!** {resource_name} en route to fire.",
+                color=0x00AA00
+            )
+            embed.add_field(
+                name="💰 Budget", 
+                value=f"-{result['cost']} pts (Remaining: {result['remaining_budget']})",
+                inline=True
+            )
+            embed.add_field(
+                name="⚡ Next Move", 
+                value="Use `/advance` to see the outcome",
+                inline=True
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ DEPLOYMENT FAILED",
+                description=f"**Insufficient budget!** Need {result['cost']} pts, have {result['budget']} pts.",
+                color=0xFF0000
+            )
+            embed.add_field(
+                name="💡 Options",
+                value="• Use `/advance` to progress\n• Try a cheaper resource",
+                inline=False
+            )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 class SingleplayerGame:
     """
     @brief Personal wildfire game state for DM contexts
@@ -34,7 +102,9 @@ class SingleplayerGame:
                 "resources_deployed": {"hand_crews": 0, "engines": 0, "air_tankers": 0},
                 "operational_period": 1,
                 "last_update": datetime.now(),
-                "game_phase": "ready"  # ready, active, contained, completed
+                "game_phase": "ready",  # ready, active, contained, completed
+                "budget": 10,  # Starting resource budget
+                "score": 0  # Performance score
             }
         return self.user_states[user_id]
         
@@ -66,12 +136,21 @@ class SingleplayerGame:
         user_state = self.get_user_state(user_id)
         
         if user_state["game_phase"] != "active":
-            return False
+            return {"success": False, "reason": "no_active_incident"}
+            
+        # Resource costs
+        costs = {"hand_crews": 2, "engines": 3, "air_tankers": 5}
+        cost = costs.get(resource_type, 2) * count
+        
+        if user_state["budget"] < cost:
+            return {"success": False, "reason": "insufficient_budget", "cost": cost, "budget": user_state["budget"]}
             
         if resource_type in user_state["resources_deployed"]:
             user_state["resources_deployed"][resource_type] += count
-            return True
-        return False
+            user_state["budget"] -= cost
+            return {"success": True, "cost": cost, "remaining_budget": user_state["budget"]}
+        
+        return {"success": False, "reason": "invalid_resource"}
         
     def advance_operational_period(self, user_id):
         """Advance to next operational period with fire progression."""
@@ -247,6 +326,61 @@ class WildfireCommands(commands.Cog):
             print(f"Failed to sync commands: {e}")
             
         print(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
+    
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Handle typed tactical choices like '1', '2', '3'."""
+        # Ignore bot messages and guild messages
+        if message.author.bot or message.guild is not None:
+            return
+            
+        # Check if user has active incident
+        user_state = self.singleplayer_game.get_user_state(message.author.id)
+        if user_state["game_phase"] != "active":
+            return
+            
+        # Handle numbered choices
+        if message.content.strip() in ["1", "1️⃣"]:
+            result = self.singleplayer_game.deploy_resources(message.author.id, "hand_crews", 1)
+            await self._send_choice_response(message.channel, "Ground Crews", result)
+        elif message.content.strip() in ["2", "2️⃣"]:
+            result = self.singleplayer_game.deploy_resources(message.author.id, "air_tankers", 1)
+            await self._send_choice_response(message.channel, "Air Support", result)
+        elif message.content.strip() in ["3", "3️⃣"]:
+            result = self.singleplayer_game.deploy_resources(message.author.id, "engines", 1)
+            await self._send_choice_response(message.channel, "Engine Company", result)
+    
+    async def _send_choice_response(self, channel, resource_name, result):
+        """Send response for typed tactical choice."""
+        if result["success"]:
+            embed = discord.Embed(
+                title=f"🚒 {resource_name} DEPLOYED", 
+                description=f"**Roger that, Commander!** {resource_name} responding to incident.",
+                color=0x00AA00
+            )
+            embed.add_field(
+                name="💰 Cost", 
+                value=f"-{result['cost']} pts • **{result['remaining_budget']} pts left**",
+                inline=False
+            )
+            embed.add_field(
+                name="⚡ What's next?", 
+                value="Type `/advance` to see what happens next",
+                inline=False
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ DEPLOYMENT DENIED",
+                description=f"**Commander, we need more budget!** {resource_name} costs {result['cost']} pts.",
+                color=0xFF0000
+            )
+            embed.add_field(
+                name="💡 Try this",
+                value="• Type `/advance` to get more budget\n• Try option **1** (cheaper)",
+                inline=False
+            )
+        
+        await channel.send(embed=embed)
         
     @discord.app_commands.command(name="fire", description="Report a new wildfire incident")
     async def fire_command(self, interaction: discord.Interaction):
@@ -360,9 +494,9 @@ class WildfireCommands(commands.Cog):
             
         # Deploy additional resources to the incident
         resource_deployed = random.choice(["hand_crews", "engines", "air_tankers"])
-        success = self.singleplayer_game.deploy_resources(interaction.user.id, resource_deployed, 1)
+        result = self.singleplayer_game.deploy_resources(interaction.user.id, resource_deployed, 1)
         
-        if success:
+        if result["success"]:
             resource_names = {
                 "hand_crews": "Hand Crew",
                 "engines": "Engine Company", 
@@ -371,34 +505,45 @@ class WildfireCommands(commands.Cog):
             
             embed = discord.Embed(
                 title="🚒 RESOURCES DEPLOYED",
-                description=f"Additional {resource_names[resource_deployed]} assigned to {user_state['incident_name']}",
+                description=f"**{resource_names[resource_deployed]}** deployed to {user_state['incident_name']}",
                 color=0x00AA00
+            )
+            
+            embed.add_field(
+                name="💰 COST",
+                value=f"**-{result['cost']} pts** (Budget: {result['remaining_budget']} pts remaining)",
+                inline=True
             )
             
             # Get current status for display
             stats = self.singleplayer_game.get_current_status(interaction.user.id)
             if stats:
                 embed.add_field(
-                    name="📊 Current Situation",
-                    value=f"**Fire Size:** {stats['fire_size_acres']} acres\n"
-                          f"**Containment:** {stats['containment_percent']}%\n"
-                          f"**Active Sectors:** {stats['active_cells']}",
-                    inline=False
+                    name="🔥 FIRE STATUS",
+                    value=f"**{stats['fire_size_acres']} acres** • **{stats['containment_percent']}%** contained",
+                    inline=True
                 )
                 
             embed.add_field(
-                name="⏭️ Next Actions",
-                value="• Use `/advance` to progress to next operational period\n"
-                      "• Use `/firestatus` for detailed situation reports\n"
-                      "• Use `/report` for specific incident reports",
+                name="⚡ NEXT",
+                value="Use `/advance` to see what happens",
                 inline=False
             )
             
             await interaction.response.send_message(embed=embed)
         else:
-            await interaction.response.send_message(
-                "❌ Unable to deploy resources at this time", ephemeral=True
-            )
+            # Handle failure cases with specific messages
+            if result["reason"] == "insufficient_budget":
+                await interaction.response.send_message(
+                    f"❌ **INSUFFICIENT BUDGET**\n"
+                    f"Need {result['cost']} pts, you have {result['budget']} pts\n"
+                    f"💡 Use `/advance` to progress and potentially get more budget",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "❌ Unable to deploy resources at this time", ephemeral=True
+                )
             
     async def _handle_multiplayer_respond(self, interaction: discord.Interaction):
         """Handle response assignment in Guild (multiplayer mode)."""
@@ -528,48 +673,10 @@ class WildfireCommands(commands.Cog):
             interaction.user.id, "initial"
         )
         
-        # Create compelling introduction embed
-        intro_embed = discord.Embed(
-            title="🎯 WILDFIRE INCIDENT COMMANDER TRAINING",
-            description="**Welcome to authentic wildfire incident command simulation**",
-            color=0xFF4500
-        )
-        
-        intro_embed.add_field(
-            name="🎓 TRAINING OBJECTIVE",
-            value="Learn real Incident Command System (ICS) protocols through "
-                  "hands-on wildfire simulation. You are now the **Incident Commander** "
-                  "responsible for tactical decisions and resource management.",
-            inline=False
-        )
-        
-        intro_embed.add_field(
-            name="🎮 HOW TO PLAY",
-            value="• `/respond` - Deploy resources and take suppression actions\n"
-                  "• `/firestatus` - Get operational briefings and situation reports\n"
-                  "• `/advance` - Progress to next operational period (12 hours)\n"
-                  "• `/report` - Request specific incident reports\n"
-                  "• `/clear` - Reset your personal training scenario",
-            inline=False
-        )
-        
-        intro_embed.add_field(
-            name="🏆 SUCCESS CRITERIA",
-            value="**Primary:** Contain the fire with minimal acreage burned\n"
-                  "**Secondary:** Protect all structures and values at risk\n"
-                  "**Critical:** Maintain firefighter safety throughout operations",
-            inline=False
-        )
-        
-        intro_embed.set_footer(
-            text="🔥 Your incident is active! Use /firestatus for situation awareness."
-        )
-        
-        await interaction.response.send_message(embed=intro_embed)
-        
-        # Send the initial dispatch report as a rich embed
+        # Immediate dispatch - drop straight into the fire with interactive choices
         dispatch_embed = await self._create_dispatch_embed(interaction.user.id)
-        await interaction.followup.send(embed=dispatch_embed)
+        view = TacticalChoicesView(self.singleplayer_game, interaction.user.id)
+        await interaction.response.send_message(embed=dispatch_embed, view=view)
         
     @discord.app_commands.command(name="stop", description="🛑 End current session (DM only)")
     async def stop_command(self, interaction: discord.Interaction):
@@ -616,7 +723,10 @@ class WildfireCommands(commands.Cog):
             interaction.user.id, "briefing"
         )
         
-        await interaction.response.send_message(f"```{briefing}```")
+        # Send operational briefing as urgent, concise embed with tactical choices
+        briefing_embed = await self._create_operational_embed(interaction.user.id)
+        view = TacticalChoicesView(self.singleplayer_game, interaction.user.id)
+        await interaction.response.send_message(embed=briefing_embed, view=view)
         
         # Check if fire is contained
         user_state = self.singleplayer_game.get_user_state(interaction.user.id)
@@ -728,18 +838,85 @@ class WildfireCommands(commands.Cog):
             inline=False
         )
         
-        # Next Actions
+        # Immediate tactical choices
         embed.add_field(
-            name="⚡ IMMEDIATE ACTIONS",
-            value="• Use `/respond` to deploy additional resources\n"
-                  "• Use `/firestatus` for detailed situation reports\n"
-                  "• Use `/advance` when ready for next operational period",
+            name="⚡ IMMEDIATE DECISIONS",
+            value="**What's your first move, Incident Commander?**\n"
+                  "1️⃣ Deploy ground crews (2 pts)\n"
+                  "2️⃣ Request air support (5 pts)\n" 
+                  "3️⃣ Establish evacuation (3 pts)",
             inline=False
         )
         
         embed.set_footer(text="Incident Command System • Educational Wildfire Training")
         embed.timestamp = datetime.now()
         
+        return embed
+    
+    async def _create_operational_embed(self, user_id) -> discord.Embed:
+        """Create urgent, concise operational briefing embed."""
+        user_state = self.singleplayer_game.get_user_state(user_id)
+        
+        if not user_state["fire_grid"]:
+            return discord.Embed(title="❌ No Active Fire", color=0xFF0000)
+            
+        stats = user_state["fire_grid"].get_fire_statistics()
+        threats = user_state["fire_grid"].get_threat_assessment()
+        incident_name = user_state["incident_name"]
+        
+        # Determine urgency level and color
+        if stats['fire_size_acres'] > 100:
+            urgency_color = 0xFF0000  # Red - Critical
+            urgency_icon = "🚨"
+            urgency_text = "CRITICAL"
+        elif stats['fire_size_acres'] > 50:
+            urgency_color = 0xFF8C00  # Orange - High
+            urgency_icon = "⚠️"
+            urgency_text = "HIGH"
+        else:
+            urgency_color = 0xFFD700  # Yellow - Moderate
+            urgency_icon = "🔥"
+            urgency_text = "ACTIVE"
+        
+        embed = discord.Embed(
+            title=f"{urgency_icon} {incident_name.upper()} - {urgency_text}",
+            description=f"**Operational Period {stats.get('operational_period', 2)}**",
+            color=urgency_color
+        )
+        
+        # Fire status - concise and urgent
+        size_change = "📈 GROWING" if stats['active_cells'] > 2 else "📉 Slowing" if stats['active_cells'] == 0 else "🔥 Active"
+        embed.add_field(
+            name="🔥 FIRE STATUS",
+            value=f"**{stats['fire_size_acres']} acres** ({size_change})\n"
+                  f"**{stats['containment_percent']}%** contained",
+            inline=True
+        )
+        
+        # Immediate threat
+        threat_emoji = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
+        embed.add_field(
+            name=f"{threat_emoji} THREAT",
+            value=f"**{threats['threatened_structures']}** structures at risk\n"
+                  f"Wind: {stats['weather']['wind_speed']} mph",
+            inline=True
+        )
+        
+        # Resource costs and actions
+        embed.add_field(
+            name="⚡ ACTIONS",
+            value="🚒 `/respond` - Deploy crew (2 pts)\n"
+                  f"⏰ `/advance` - Next period\n"
+                  f"💰 Budget: {user_state.get('budget', 10)} pts",
+            inline=False
+        )
+        
+        # Goal reminder
+        if stats['containment_percent'] < 100:
+            embed.set_footer(text="🎯 GOAL: Contain fire before it reaches 200 acres")
+        else:
+            embed.set_footer(text="🎉 FIRE CONTAINED - Use /stop for results")
+            
         return embed
 
 
