@@ -13,6 +13,7 @@ import json
 import os
 from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
+import asyncio
 
 
 class TacticalChoicesView(discord.ui.View):
@@ -390,6 +391,7 @@ class WildfireCommands(commands.Cog):
         self.bot = bot
         self.game = WildfireGame()
         self.singleplayer_game = SingleplayerGame()
+        self.auto_progression_task = None
         
     @commands.Cog.listener()
     async def on_ready(self):
@@ -421,6 +423,10 @@ class WildfireCommands(commands.Cog):
             print(f"Failed to sync commands: {e}")
             
         print(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
+        
+        # Start auto-progression background task
+        if not self.auto_progression_task or self.auto_progression_task.done():
+            self.auto_progression_task = asyncio.create_task(self._auto_progression_loop())
     
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -968,6 +974,52 @@ Use `/stop` to see your performance report."""
 🎯 **Contain before 200 acres!**"""
         
         return message
+    
+    async def _auto_progression_loop(self):
+        """Background task that automatically progresses fires and sends updates."""
+        while True:
+            try:
+                await asyncio.sleep(10)  # Check every 10 seconds
+                
+                # Check all active user states
+                for user_id, user_state in list(self.singleplayer_game.user_states.items()):
+                    if user_state["game_phase"] != "active":
+                        continue
+                        
+                    next_progression = user_state.get("next_progression")
+                    if not next_progression:
+                        continue
+                        
+                    # Check if it's time for auto-progression
+                    if datetime.now() >= next_progression:
+                        try:
+                            # Get user from Discord
+                            user = self.bot.get_user(user_id)
+                            if not user:
+                                continue
+                                
+                            # Auto-advance the fire
+                            auto_result = self.singleplayer_game.auto_advance_fire(user_id)
+                            if not auto_result:
+                                continue
+                                
+                            # Send status update
+                            status_message = await self._create_operational_message(user_id)
+                            view = TacticalChoicesView(self.singleplayer_game, user_id)
+                            
+                            # Send to user's DM
+                            try:
+                                await user.send(status_message, view=view)
+                            except discord.Forbidden:
+                                # User has DMs disabled, skip
+                                pass
+                                
+                        except Exception as e:
+                            print(f"Error in auto-progression for user {user_id}: {e}")
+                            
+            except Exception as e:
+                print(f"Error in auto-progression loop: {e}")
+                await asyncio.sleep(30)  # Wait longer on error
 
 
 async def setup_wildfire_commands(bot):
