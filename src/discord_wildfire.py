@@ -762,12 +762,7 @@ class WildfireGame:
         fire_id = f"guild_fire_{channel_id}_{int(time.time())}"
         
         # Create realistic fire simulation
-        weather = WeatherConditions(
-            wind_speed=random.randint(5, 25),
-            wind_direction=random.choice(["N", "NE", "E", "SE", "S", "SW", "W", "NW"]),
-            humidity=random.randint(15, 60),
-            temperature=random.randint(70, 105)
-        )
+        weather = WeatherConditions()  # Generates random weather automatically
         
         fire_grid = FireGrid()
         fire_grid.initialize_random_fire(weather)
@@ -1136,20 +1131,23 @@ class WildfireCommands(commands.Cog):
         
     async def _handle_multiplayer_fire(self, interaction: discord.Interaction):
         """Handle fire creation in Guild (multiplayer mode)."""
-        # Check if there's already an active fire in this channel
-        for fire_id, fire_data in self.game.active_fires.items():
-            if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
-                await interaction.response.send_message(
-                    f"❌ **{fire_data['incident_name']}** is already active in this channel!\n"
-                    f"Use `/respond` to join the team or `/firestatus` to check progress.",
-                    ephemeral=True
-                )
-                return
-                
-        fire_data = self.game.create_fire(interaction.channel.id)
-        fire_status = self.game.get_fire_status(fire_data["id"])
-        
-        message = f"""🚨 **WILDFIRE INCIDENT REPORTED**
+        try:
+            # Defer response immediately to prevent timeout
+            await interaction.response.defer()
+            
+            # Check if there's already an active fire in this channel
+            for fire_id, fire_data in self.game.active_fires.items():
+                if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
+                    await interaction.followup.send(
+                        f"❌ **{fire_data['incident_name']}** is already active in this channel!\n"
+                        f"Use `/respond` to join the team or `/firestatus` to check progress."
+                    )
+                    return
+                    
+            fire_data = self.game.create_fire(interaction.channel.id)
+            fire_status = self.game.get_fire_status(fire_data["id"])
+            
+            message = f"""🚨 **WILDFIRE INCIDENT REPORTED**
 
 🔥 **{fire_status['incident_name'].upper()} - TEAM RESPONSE NEEDED**
 
@@ -1163,8 +1161,18 @@ class WildfireCommands(commands.Cog):
 
 🚒 **Team members use `/respond` to join the incident response!**
 ⚡ **Real-time fire progression** will begin automatically every 45 seconds!"""
-        
-        await interaction.response.send_message(message)
+            
+            await interaction.followup.send(message)
+            
+        except Exception as e:
+            print(f"Error in multiplayer fire creation: {e}")
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ Error creating fire incident", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ Error creating fire incident", ephemeral=True)
+            except:
+                pass
         
     @discord.app_commands.command(name="respond", description="Respond to active wildfire incident")
     async def respond_command(self, interaction: discord.Interaction):
@@ -1242,40 +1250,43 @@ class WildfireCommands(commands.Cog):
             
     async def _handle_multiplayer_respond(self, interaction: discord.Interaction):
         """Handle response assignment in Guild (multiplayer mode)."""
-        # Find active fire in this channel
-        active_fire = None
-        for fire_id, fire_data in self.game.active_fires.items():
-            if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
-                active_fire = fire_data
-                break
-        
-        if not active_fire:
-            await interaction.response.send_message(
-                "❌ No active fire in this channel. Use `/fire` to create an incident.",
-                ephemeral=True
+        try:
+            # Defer response immediately to prevent timeout
+            await interaction.response.defer()
+            
+            # Find active fire in this channel
+            active_fire = None
+            for fire_id, fire_data in self.game.active_fires.items():
+                if fire_data["channel_id"] == interaction.channel.id and fire_data["status"] == "active":
+                    active_fire = fire_data
+                    break
+            
+            if not active_fire:
+                await interaction.followup.send(
+                    "❌ No active fire in this channel. Use `/fire` to create an incident."
+                )
+                return
+                
+            # Assign player to the fire if not already assigned
+            success = self.game.assign_player(
+                active_fire["id"],
+                interaction.user.id, 
+                interaction.user.display_name
             )
-            return
             
-        # Assign player to the fire if not already assigned
-        success = self.game.assign_player(
-            active_fire["id"],
-            interaction.user.id, 
-            interaction.user.display_name
-        )
-        
-        if not success and interaction.user.id in self.game.player_assignments:
-            # Player already assigned, allow resource deployment
-            pass
-        
-        # Get current fire status for display
-        fire_status = self.game.get_fire_status(active_fire["id"])
-        if not fire_status:
-            await interaction.response.send_message("❌ Fire status unavailable", ephemeral=True)
-            return
+            if not success and interaction.user.id in self.game.player_assignments:
+                # Player already assigned, allow resource deployment
+                pass
             
-        threat_emoji = "🔴" if fire_status['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if fire_status['threat_level'] == "MODERATE" else "🟢"
-        
-        message = f"""🚒 **TEAM RESOURCE DEPLOYMENT**
+            # Get current fire status for display
+            fire_status = self.game.get_fire_status(active_fire["id"])
+            if not fire_status:
+                await interaction.followup.send("❌ Fire status unavailable")
+                return
+                
+            threat_emoji = "🔴" if fire_status['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if fire_status['threat_level'] == "MODERATE" else "🟢"
+            
+            message = f"""🚒 **TEAM RESOURCE DEPLOYMENT**
 
 {interaction.user.display_name} responding to **{fire_status['incident_name'].upper()}**
 
@@ -1294,9 +1305,19 @@ class WildfireCommands(commands.Cog):
 
 **Choose your tactical deployment:**"""
 
-        # Create team tactical choices view
-        view = TeamTacticalChoicesView(self.game, active_fire["id"], interaction.user.id)
-        await interaction.response.send_message(message, view=view)
+            # Create team tactical choices view
+            view = TeamTacticalChoicesView(self.game, active_fire["id"], interaction.user.id)
+            await interaction.followup.send(message, view=view)
+            
+        except Exception as e:
+            print(f"Error in multiplayer respond: {e}")
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ Error joining incident", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ Error joining incident", ephemeral=True)
+            except:
+                pass
             
         
     def _find_active_guild_fire(self):
