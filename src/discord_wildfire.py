@@ -71,7 +71,7 @@ class TacticalChoicesView(discord.ui.View):
             stats = user_state["fire_grid"].get_fire_statistics()
             threats = user_state["fire_grid"].get_threat_assessment()
             
-            threat_emoji = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
+            threat_emoji = "🔴" if threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
             
             message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
@@ -94,14 +94,57 @@ class TacticalChoicesView(discord.ui.View):
             await interaction.response.send_message(message, view=view)
             
         else:
-            message = f"""❌ **INSUFFICIENT BUDGET**
-
-**Need {result['cost']} pts, have {result['budget']} pts**
-
-💡 **EARN MORE POINTS:** Good containment = more budget!
-Try **Ground Crews** (2 pts) - most cost-effective option."""
+            # Game over - no more budget
+            user_state = self.singleplayer_game.get_user_state(self.user_id)
+            stats = user_state["fire_grid"].get_fire_statistics()
             
-            await interaction.response.send_message(message, ephemeral=True)
+            # Set game phase to failed
+            user_state["game_phase"] = "failed"
+            
+            message = f"""💥 **GAME OVER - OUT OF BUDGET!**
+
+🔥 **FINAL FIRE STATUS:**
+• **Size:** {stats['fire_size_acres']} acres
+• **Containment:** {stats['containment_percent']}%
+
+💰 **Budget:** {result['budget']} pts (Need {result['cost']} pts for {resource_name})
+
+🎯 **RESULT:** Fire continued to spread without sufficient resources!
+
+**🚀 Ready to try again?**"""
+            
+            # Create restart button
+            restart_view = discord.ui.View()
+            restart_button = discord.ui.Button(label='🔄 START NEW SCENARIO', style=discord.ButtonStyle.success)
+            
+            async def restart_callback(restart_interaction):
+                if restart_interaction.user.id != self.user_id:
+                    await restart_interaction.response.send_message("❌ This isn't your scenario!", ephemeral=True)
+                    return
+                
+                # Clear old state and start new
+                self.singleplayer_game.clear_user_state(self.user_id)
+                user_state = self.singleplayer_game.start_new_scenario(self.user_id)
+                
+                # Send new dispatch
+                from discord_wildfire import WildfireCommands
+                wf_commands = None
+                for cog in restart_interaction.client.cogs.values():
+                    if isinstance(cog, WildfireCommands):
+                        wf_commands = cog
+                        break
+                
+                if wf_commands:
+                    dispatch_message = await wf_commands._create_dispatch_message(self.user_id)
+                    new_view = TacticalChoicesView(self.singleplayer_game, self.user_id)
+                    await restart_interaction.response.send_message(dispatch_message, view=new_view)
+                else:
+                    await restart_interaction.response.send_message("Use `/start` to begin a new scenario!")
+            
+            restart_button.callback = restart_callback
+            restart_view.add_item(restart_button)
+            
+            await interaction.response.send_message(message, view=restart_view)
     
     def _create_progression_message(self, result):
         """Create a message showing what changed from the previous action."""
@@ -115,23 +158,42 @@ Try **Ground Crews** (2 pts) - most cost-effective option."""
         size_change = after['fire_size_acres'] - before['fire_size_acres']
         containment_change = after['containment_percent'] - before['containment_percent']
         
-        # Format changes with clear indicators
+        # Get budget change from result
+        cost = result.get('cost', 0)
+        
+        # Format changes with clear +/- indicators
         changes = []
         
-        if size_change != 0:
-            size_emoji = "📉" if size_change < 0 else "📈" if size_change > 0 else "➡️"
-            size_text = f"decreased by {abs(size_change)}" if size_change < 0 else f"grew by {size_change}" if size_change > 0 else "stable"
-            changes.append(f"{size_emoji} **Fire size {size_text} acres**")
-        
-        if containment_change != 0:
-            contain_emoji = "📈" if containment_change > 0 else "📉"
-            contain_text = f"increased by {containment_change}%" if containment_change > 0 else f"decreased by {abs(containment_change)}%"
-            changes.append(f"{contain_emoji} **Containment {contain_text}**")
-        
-        if changes:
-            return f"\n⚡ **IMMEDIATE EFFECT:**\n" + "\n".join(f"   {change}" for change in changes) + "\n"
+        # Fire size change
+        if size_change > 0:
+            changes.append(f"📈 **Fire size: +{size_change} acres** (spreading)")
+        elif size_change < 0:
+            changes.append(f"📉 **Fire size: {size_change} acres** (reduced)")
         else:
-            return "\n⚡ **IMMEDIATE EFFECT:** Resources deployed, monitoring situation...\n"
+            changes.append(f"➡️ **Fire size: stable** (no change)")
+        
+        # Containment change
+        if containment_change > 0:
+            changes.append(f"📈 **Containment: +{containment_change}%** (improving)")
+        elif containment_change < 0:
+            changes.append(f"📉 **Containment: {containment_change}%** (losing ground)")
+        else:
+            changes.append(f"➡️ **Containment: no change**")
+            
+        # Budget change (always shows the cost)
+        changes.append(f"💰 **Budget: -{cost} pts** (resource cost)")
+        
+        # Structures threatened change
+        before_threats = before.get('threatened_structures', 0)
+        after_threats = after.get('threatened_structures', 0)
+        structures_change = after_threats - before_threats
+        
+        if structures_change > 0:
+            changes.append(f"🏠 **Structures: +{structures_change} at risk** (fire spreading)")
+        elif structures_change < 0:
+            changes.append(f"🏠 **Structures: {structures_change} at risk** (threat reduced)")
+        
+        return f"\n⚡ **IMMEDIATE EFFECT:**\n" + "\n".join(f"   {change}" for change in changes) + "\n"
 
 
 class SingleplayerGame:
@@ -532,7 +594,7 @@ class WildfireCommands(commands.Cog):
             stats = user_state["fire_grid"].get_fire_statistics()
             threats = user_state["fire_grid"].get_threat_assessment()
             
-            threat_emoji = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
+            threat_emoji = "🔴" if threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
             
             message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
 
@@ -555,12 +617,24 @@ class WildfireCommands(commands.Cog):
             await channel.send(message, view=view)
             
         else:
-            message = f"""❌ **INSUFFICIENT BUDGET**
+            # Game over - no more budget
+            user_state = self.singleplayer_game.get_user_state(user_id)
+            stats = user_state["fire_grid"].get_fire_statistics()
+            
+            # Set game phase to failed
+            user_state["game_phase"] = "failed"
+            
+            message = f"""💥 **GAME OVER - OUT OF BUDGET!**
 
-**Need {result['cost']} pts, have {result['budget']} pts**
+🔥 **FINAL FIRE STATUS:**
+• **Size:** {stats['fire_size_acres']} acres
+• **Containment:** {stats['containment_percent']}%
 
-💡 **EARN MORE POINTS:** Good containment = more budget!
-Try **Ground Crews** (2 pts) - most cost-effective option."""
+💰 **Budget:** {result['budget']} pts (Need {result['cost']} pts for {resource_name})
+
+🎯 **RESULT:** Fire continued to spread without sufficient resources!
+
+**Use `/start` to try again!**"""
             
             await channel.send(message)
         
