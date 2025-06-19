@@ -1,0 +1,135 @@
+name: 🏃 Sprint Planning
+description: Plan a new sprint
+title: "Sprint [NUMBER] Planning - [SPRINT_GOAL]"
+labels: ["sprint-planning", "planning"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # Sprint Planning Template
+        
+        Use this template to plan each 2-week sprint cycle.
+
+  - type: input
+    id: sprint_number
+    attributes:
+      label: Sprint Number
+      description: Which sprint is this?
+      placeholder: "1"
+    validations:
+      required: true
+
+  - type: input
+    id: sprint_duration
+    attributes:
+      label: Sprint Duration
+      description: How long is this sprint?
+      placeholder: "2 weeks"
+      value: "2 weeks"
+    validations:
+      required: true
+
+  - type: input
+    id: sprint_dates
+    attributes:
+      label: Sprint Dates
+      description: Start and end dates
+      placeholder: "June 19 - July 2, 2024"
+    validations:
+      required: true
+
+  - type: textarea
+    id: sprint_goal
+    attributes:
+      label: Sprint Goal
+      description: What is the primary objective for this sprint?
+      placeholder: |
+        Example: "Establish project foundation and implement core fire simulation engine"
+    validations:
+      required: true
+
+  - type: textarea
+    id: sprint_backlog
+    attributes:
+      label: Sprint Backlog
+      description: Issues committed to this sprint with story points
+      placeholder: |
+        - [ ] Issue #1 (3 pts) - Project structure setup
+        - [ ] Issue #2 (2 pts) - Documentation updates  
+        - [ ] Issue #3 (8 pts) - Fire simulation engine
+        
+        **Total Committed Points:** 13
+    validations:
+      required: true
+
+  - type: input
+    id: team_capacity
+    attributes:
+      label: Team Capacity
+      description: Available story points for this sprint
+      placeholder: "13 story points"
+    validations:
+      required: true
+
+  - type: input
+    id: team_velocity
+    attributes:
+      label: Team Velocity
+      description: Average points completed in recent sprints
+      placeholder: "12 story points (based on previous sprints)"
+    validations:
+      required: false
+
+  - type: textarea
+    id: sprint_risks
+    attributes:
+      label: Sprint Risks & Dependencies
+      description: Potential blockers or risks for this sprint
+      placeholder: |
+        - Risk: Fire simulation complexity may exceed estimates
+        - Dependency: Need project setup before development work
+        - Mitigation: Break down Issue #3 if needed
+    validations:
+      required: false
+
+  - type: textarea
+    id: definition_of_done
+    attributes:
+      label: Definition of Done
+      description: Criteria for considering work complete
+      placeholder: |
+        - [ ] All acceptance criteria met
+        - [ ] Code reviewed and approved
+        - [ ] Unit tests written and passing
+        - [ ] Integration tests passing
+        - [ ] Documentation updated
+        - [ ] No new linting errors
+        - [ ] Manual testing completed
+    validations:
+      required: true
+
+  - type: textarea
+    id: sprint_ceremonies
+    attributes:
+      label: Sprint Ceremonies
+      description: Planned meetings and reviews
+      placeholder: |
+        - **Sprint Planning:** [Date/Time]
+        - **Daily Standups:** Comments on this issue
+        - **Sprint Review:** [Date/Time] 
+        - **Sprint Retrospective:** [Date/Time]
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_notes
+    attributes:
+      label: Additional Notes
+      description: Any other planning notes or considerations
+      placeholder: |
+        - First sprint, establishing project rhythms
+        - Focus on architecture and foundation
+        - May need to adjust estimates as we learn
+    validations:
+      required: false

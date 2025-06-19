@@ -1,0 +1,381 @@
+name: 🏃 Sprint Planning Automation
+
+on:
+  schedule:
+    # Trigger sprint planning preparation every Sunday at 6 PM UTC
+    # (Day before Monday sprint planning)
+    - cron: '0 18 * * SUN'
+  
+  workflow_dispatch:
+    inputs:
+      sprint_number:
+        description: 'Sprint number to plan'
+        required: true
+        type: string
+      sprint_goal:
+        description: 'Sprint goal description'
+        required: true
+        type: string
+
+jobs:
+  prepare_sprint_planning:
+    name: Prepare Sprint Planning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Sprint Planning Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get next sprint number
+            const { data: previousSprints } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'sprint-planning',
+              state: 'all',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 1
+            });
+            
+            let nextSprintNumber = 1;
+            if (previousSprints.length > 0) {
+              const lastSprintMatch = previousSprints[0].title.match(/Sprint (\d+)/);
+              if (lastSprintMatch) {
+                nextSprintNumber = parseInt(lastSprintMatch[1]) + 1;
+              }
+            }
+            
+            // Use input if provided, otherwise calculate
+            const sprintNumber = context.payload.inputs?.sprint_number || nextSprintNumber.toString();
+            const sprintGoal = context.payload.inputs?.sprint_goal || "Define sprint goal during planning";
+            
+            // Calculate sprint dates (start Monday, end Friday 2 weeks later)
+            const today = new Date();
+            const daysUntilMonday = (1 + 7 - today.getDay()) % 7 || 7;
+            const sprintStart = new Date(today);
+            sprintStart.setDate(today.getDate() + daysUntilMonday);
+            
+            const sprintEnd = new Date(sprintStart);
+            sprintEnd.setDate(sprintStart.getDate() + 11); // 2 weeks - 1 day
+            
+            const startDate = sprintStart.toLocaleDateString();
+            const endDate = sprintEnd.toLocaleDateString();
+            
+            // Get team velocity from recent sprints
+            let averageVelocity = 12; // default
+            if (previousSprints.length > 0) {
+              // Extract velocity from previous sprint comments
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: previousSprints[0].number
+              });
+              
+              const velocityRegex = /(?:completed|velocity)[:\s]*(\d+)\s*points?/i;
+              const allText = [previousSprints[0].body || '', ...comments.map(c => c.body)].join(' ');
+              const velocityMatch = allText.match(velocityRegex);
+              
+              if (velocityMatch) {
+                averageVelocity = parseInt(velocityMatch[1]);
+              }
+            }
+            
+            // Get candidate issues for sprint backlog
+            const { data: candidateIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'ready-for-sprint',
+              state: 'open',
+              sort: 'created',
+              direction: 'asc'
+            });
+            
+            const sprintPlanningBody = `# Sprint ${sprintNumber} Planning
+            
+## 📅 Sprint Information
+- **Sprint Number:** ${sprintNumber}
+- **Duration:** 2 weeks
+- **Start Date:** ${startDate}
+- **End Date:** ${endDate}
+- **Sprint Goal:** ${sprintGoal}
+
+## 🎯 Sprint Objectives
+<!-- Define what we want to achieve in this sprint -->
+- Objective 1: 
+- Objective 2: 
+- Objective 3: 
+
+## 📊 Capacity Planning
+- **Team Velocity (avg):** ${averageVelocity} story points
+- **Available Capacity:** ${averageVelocity} story points
+- **Committed Points:** _TBD during planning_
+
+## 📋 Sprint Backlog Candidates
+<!-- Review and select items during planning meeting -->
+
+${candidateIssues.length > 0 
+  ? candidateIssues.slice(0, 8).map(issue => {
+      const storyPointsMatch = (issue.body || '').match(/(?:story\s*points?|points?)[:\s]*(\d+)/i);
+      const points = storyPointsMatch ? storyPointsMatch[1] : '?';
+      return `- [ ] #${issue.number} (${points} pts) - ${issue.title}`;
+    }).join('\n')
+  : '- No issues labeled "ready-for-sprint" found'
+}
+
+**Selection Criteria:**
+- Aligns with sprint goal
+- Within team capacity
+- Dependencies resolved
+- Clear acceptance criteria
+
+## ⚖️ Sprint Risks & Dependencies
+<!-- Identify potential blockers and mitigation strategies -->
+- Risk 1: Description and mitigation plan
+- Risk 2: Description and mitigation plan
+
+## ✅ Definition of Done
+- [ ] All acceptance criteria met
+- [ ] Code reviewed and approved
+- [ ] Unit tests written and passing (>90% coverage)
+- [ ] Integration tests passing
+- [ ] Documentation updated
+- [ ] No new linting errors
+- [ ] Manual testing completed
+- [ ] Performance impact assessed
+
+## 📈 Sprint Ceremonies Schedule
+- **Sprint Planning:** ${startDate} (this issue)
+- **Daily Standups:** Daily updates in comments
+- **Sprint Review:** ${endDate}
+- **Sprint Retrospective:** ${endDate} (after review)
+
+---
+
+## 📝 Planning Meeting Notes
+<!-- Add notes during the planning meeting -->
+
+### Decisions Made:
+- 
+
+### Items Added to Sprint:
+- 
+
+### Items Deferred:
+- 
+
+### Action Items:
+- [ ] Action item 1
+- [ ] Action item 2
+
+---
+
+## 📊 Sprint Progress Tracking
+<!-- This section will be updated throughout the sprint -->
+
+### Completed Items:
+- 
+
+### In Progress:
+- 
+
+### Blocked:
+- 
+
+### Sprint Burndown:
+<!-- Updated by automation and team -->
+
+---
+
+*Use this issue for sprint planning coordination, daily updates, and progress tracking.*`;
+
+            // Create the sprint planning issue
+            const { data: newIssue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Sprint ${sprintNumber} Planning - ${sprintGoal}`,
+              body: sprintPlanningBody,
+              labels: ['sprint-planning', 'planning'],
+              assignees: [] // Add team members as needed
+            });
+            
+            console.log(`Created sprint planning issue: ${newIssue.html_url}`);
+            
+            // Close previous sprint if still open
+            if (previousSprints.length > 0 && previousSprints[0].state === 'open') {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: previousSprints[0].number,
+                state: 'closed'
+              });
+              
+              // Add closure comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: previousSprints[0].number,
+                body: `## 🏁 Sprint Completed
+
+This sprint has been automatically closed as Sprint ${sprintNumber} planning has begun.
+
+**Next Sprint:** #${newIssue.number}
+
+---
+*Automated sprint transition*`
+              });
+            }
+
+  update_issue_priorities:
+    name: Update Issue Priorities for Planning
+    runs-on: ubuntu-latest
+    needs: prepare_sprint_planning
+    steps:
+      - name: Review and Tag Ready Issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get all open issues without sprint assignment
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 50
+            });
+            
+            // Filter issues that might be ready for sprint
+            const readyForReview = openIssues.filter(issue => {
+              const hasAcceptanceCriteria = (issue.body || '').includes('Acceptance Criteria');
+              const hasStoryPoints = (issue.body || '').match(/(?:story\s*points?|points?)[:\s]*(\d+)/i);
+              const isNotEpic = !issue.labels.some(label => label.name === 'epic');
+              const isNotSprintPlanning = !issue.labels.some(label => label.name === 'sprint-planning');
+              
+              return hasAcceptanceCriteria && hasStoryPoints && isNotEpic && isNotSprintPlanning;
+            });
+            
+            // Add "ready-for-sprint" label to qualified issues
+            for (const issue of readyForReview) {
+              const hasLabel = issue.labels.some(label => label.name === 'ready-for-sprint');
+              
+              if (!hasLabel) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  labels: ['ready-for-sprint']
+                });
+                
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `## 🏃 Ready for Sprint Planning
+
+This issue has been identified as ready for sprint planning because it has:
+- ✅ Clear acceptance criteria
+- ✅ Story point estimate
+- ✅ Well-defined scope
+
+It will be considered for inclusion in the next sprint backlog.
+
+---
+*Automated sprint preparation*`
+                });
+              }
+            }
+            
+            console.log(`Tagged ${readyForReview.length} issues as ready for sprint planning`);
+
+  generate_sprint_metrics:
+    name: Generate Sprint Preparation Metrics
+    runs-on: ubuntu-latest
+    needs: [prepare_sprint_planning, update_issue_priorities]
+    steps:
+      - name: Create Sprint Metrics Summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get metrics for sprint planning
+            const { data: allIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100
+            });
+            
+            // Calculate backlog health metrics
+            const openIssues = allIssues.filter(issue => issue.state === 'open' && !issue.pull_request);
+            const readyIssues = openIssues.filter(issue => 
+              issue.labels.some(label => label.name === 'ready-for-sprint')
+            );
+            const epics = openIssues.filter(issue => 
+              issue.labels.some(label => label.name === 'epic')
+            );
+            
+            // Calculate total story points
+            let totalBacklogPoints = 0;
+            let readyBacklogPoints = 0;
+            
+            const storyPointRegex = /(?:story\s*points?|points?)[:\s]*(\d+)/i;
+            
+            openIssues.forEach(issue => {
+              const pointsMatch = (issue.body || '').match(storyPointRegex);
+              if (pointsMatch) {
+                const points = parseInt(pointsMatch[1]);
+                totalBacklogPoints += points;
+                
+                if (issue.labels.some(label => label.name === 'ready-for-sprint')) {
+                  readyBacklogPoints += points;
+                }
+              }
+            });
+            
+            const metricsReport = `## 📊 Sprint Planning Preparation Report
+            
+**Generated:** ${new Date().toLocaleDateString()}
+
+### 📋 Backlog Health
+- **Total Open Issues:** ${openIssues.length}
+- **Ready for Sprint:** ${readyIssues.length}
+- **Active Epics:** ${epics.length}
+
+### 📈 Story Point Distribution
+- **Total Backlog Points:** ${totalBacklogPoints}
+- **Ready Backlog Points:** ${readyBacklogPoints}
+- **Sprint Capacity:** ~12-15 points
+
+### 🎯 Sprint Planning Readiness
+${readyBacklogPoints >= 20 ? '🟢 Excellent' : readyBacklogPoints >= 15 ? '🟡 Good' : '🔴 Needs Work'}
+
+**Recommendation:** ${readyBacklogPoints >= 15 
+  ? 'Sufficient backlog for sprint planning' 
+  : 'Consider refining more backlog items before planning'
+}
+
+### 📋 Action Items for Planning
+- [ ] Review and prioritize ready issues
+- [ ] Clarify acceptance criteria where needed
+- [ ] Break down large issues if necessary
+- [ ] Confirm team capacity and availability
+
+---
+*Automated sprint preparation metrics*`;
+
+            // Post metrics to latest sprint planning issue
+            const { data: sprintIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'sprint-planning',
+              state: 'open',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 1
+            });
+            
+            if (sprintIssues.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: sprintIssues[0].number,
+                body: metricsReport
+              });
+            }

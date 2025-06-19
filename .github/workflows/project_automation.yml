@@ -1,0 +1,277 @@
+name: 🤖 Project Automation
+
+on:
+  issues:
+    types: [opened, closed, reopened, labeled, unlabeled]
+  pull_request:
+    types: [opened, closed, reopened, merged, ready_for_review]
+  issue_comment:
+    types: [created]
+
+jobs:
+  auto_label:
+    name: Auto-label Issues
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened' && github.event.issue
+    steps:
+      - name: Add labels based on title
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.issue.title.toLowerCase();
+            const labels = [];
+            
+            // Auto-label based on title prefixes
+            if (title.includes('[user story]') || title.includes('🎯')) {
+              labels.push('user-story');
+            }
+            if (title.includes('[bug]') || title.includes('🐛')) {
+              labels.push('bug');
+            }
+            if (title.includes('[epic]') || title.includes('🚀')) {
+              labels.push('epic');
+            }
+            if (title.includes('sprint') && title.includes('planning')) {
+              labels.push('sprint-planning', 'planning');
+            }
+            
+            // Auto-label based on content/keywords
+            if (title.includes('fire') || title.includes('simulation')) {
+              labels.push('game-engine');
+            }
+            if (title.includes('ui') || title.includes('interface') || title.includes('rich')) {
+              labels.push('ui-ux');
+            }
+            if (title.includes('test') || title.includes('testing')) {
+              labels.push('architecture');
+            }
+            if (title.includes('scenario') || title.includes('content')) {
+              labels.push('content');
+            }
+            if (title.includes('docs') || title.includes('documentation')) {
+              labels.push('documentation');
+            }
+            
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                labels: labels
+              });
+            }
+
+  estimate_story_points:
+    name: Estimate Story Points
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened' && github.event.issue
+    steps:
+      - name: Add story point estimate comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueBody = context.payload.issue.body || '';
+            const title = context.payload.issue.title;
+            
+            // Simple heuristic for story point estimation
+            let estimate = '?';
+            const bodyLength = issueBody.length;
+            const checkboxCount = (issueBody.match(/- \[ \]/g) || []).length;
+            
+            if (title.toLowerCase().includes('setup') || title.toLowerCase().includes('config')) {
+              estimate = '2-3 points (Setup/Configuration)';
+            } else if (checkboxCount <= 3) {
+              estimate = '1-3 points (Simple task)';
+            } else if (checkboxCount <= 6) {
+              estimate = '3-5 points (Medium complexity)';
+            } else if (checkboxCount > 6) {
+              estimate = '5-8 points (Complex task)';
+            }
+            
+            if (title.toLowerCase().includes('engine') || title.toLowerCase().includes('simulation')) {
+              estimate = '8-13 points (Core system)';
+            }
+            
+            const comment = `## 📊 Automated Story Point Estimation
+            
+**Estimated Effort:** ${estimate}
+
+This is an automated estimate based on:
+- Task complexity indicators
+- Number of acceptance criteria
+- Component type (core vs. feature)
+
+Please review and update with actual story points during sprint planning.
+
+---
+*This comment was generated automatically. Update the issue with actual story points.*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: comment
+            });
+
+  sprint_progress_tracker:
+    name: Sprint Progress Tracker
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.issue
+    steps:
+      - name: Update sprint progress
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Look for sprint planning issues to update
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'sprint-planning',
+              state: 'open'
+            });
+            
+            for (const sprintIssue of issues) {
+              // Check if closed issue is mentioned in sprint backlog
+              const issueNumber = context.payload.issue.number;
+              if (sprintIssue.body && sprintIssue.body.includes(`#${issueNumber}`)) {
+                const comment = `## ✅ Sprint Progress Update
+                
+Issue #${issueNumber} "${context.payload.issue.title}" has been completed!
+
+**Status:** Closed  
+**Completed:** ${new Date().toLocaleDateString()}
+
+---
+*Automated update from sprint tracking*`;
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: sprintIssue.number,
+                  body: comment
+                });
+              }
+            }
+
+  pr_project_automation:
+    name: PR Project Automation
+    runs-on: ubuntu-latest
+    if: github.event.pull_request
+    steps:
+      - name: Link PR to related issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prBody = context.payload.pull_request.body || '';
+            const prTitle = context.payload.pull_request.title;
+            
+            // Extract issue numbers from PR body/title
+            const issueNumbers = [];
+            const patterns = [
+              /(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)/gi,
+              /(?:refs?|references?)\s+#(\d+)/gi,
+              /#(\d+)/g
+            ];
+            
+            patterns.forEach(pattern => {
+              let match;
+              while ((match = pattern.exec(prBody + ' ' + prTitle)) !== null) {
+                const issueNum = parseInt(match[1]);
+                if (!issueNumbers.includes(issueNum)) {
+                  issueNumbers.push(issueNum);
+                }
+              }
+            });
+            
+            if (issueNumbers.length > 0) {
+              const action = context.payload.action;
+              let status = '';
+              
+              switch(action) {
+                case 'opened':
+                  status = '👀 In Code Review';
+                  break;
+                case 'ready_for_review':
+                  status = '👀 Ready for Review';
+                  break;
+                case 'closed':
+                  status = context.payload.pull_request.merged ? '✅ Merged' : '❌ Closed';
+                  break;
+              }
+              
+              for (const issueNum of issueNumbers) {
+                try {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNum,
+                    body: `## 🔗 Pull Request Update
+
+PR #${context.payload.pull_request.number} ${status}
+
+**PR:** [${context.payload.pull_request.title}](${context.payload.pull_request.html_url})
+**Status:** ${status}
+**Updated:** ${new Date().toLocaleDateString()}
+
+---
+*Automated update from PR tracking*`
+                  });
+                } catch (error) {
+                  console.log(`Could not comment on issue #${issueNum}: ${error.message}`);
+                }
+              }
+            }
+
+  milestone_progress:
+    name: Milestone Progress Tracker
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.issue && github.event.issue.milestone
+    steps:
+      - name: Check milestone completion
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const milestone = context.payload.issue.milestone;
+            
+            // Get all issues in this milestone
+            const { data: milestoneIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              milestone: milestone.number,
+              state: 'all'
+            });
+            
+            const totalIssues = milestoneIssues.length;
+            const closedIssues = milestoneIssues.filter(issue => issue.state === 'closed').length;
+            const openIssues = totalIssues - closedIssues;
+            const completionPercentage = Math.round((closedIssues / totalIssues) * 100);
+            
+            // Create progress update comment on a milestone tracking issue
+            const { data: trackingIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'milestone-tracking',
+              state: 'open'
+            });
+            
+            if (trackingIssues.length > 0) {
+              const comment = `## 📈 Milestone Progress Update: ${milestone.title}
+              
+**Completion:** ${completionPercentage}% (${closedIssues}/${totalIssues} issues)
+**Remaining:** ${openIssues} issues
+
+**Recently Completed:** #${context.payload.issue.number} - ${context.payload.issue.title}
+
+**Progress Bar:**
+${'█'.repeat(Math.floor(completionPercentage/10))}${'░'.repeat(10-Math.floor(completionPercentage/10))} ${completionPercentage}%
+
+---
+*Updated: ${new Date().toLocaleDateString()} | Automated milestone tracking*`;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: trackingIssues[0].number,
+                body: comment
+              });
+            }

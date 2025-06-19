@@ -1,0 +1,125 @@
+name: 🚀 Epic
+description: Create a new epic for large features or initiatives
+title: "[EPIC] "
+labels: ["epic"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # Epic Template
+        
+        An epic represents a large body of work that can be broken down into smaller user stories or tasks.
+
+  - type: textarea
+    id: epic_description
+    attributes:
+      label: Epic Description
+      description: High-level description of the epic and its business value
+      placeholder: |
+        What is this epic about? What business problem does it solve?
+        What value does it provide to users?
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_personas
+    attributes:
+      label: User Personas
+      description: Who will benefit from this epic?
+      placeholder: |
+        - Incident Commanders learning wildfire tactics
+        - Students studying emergency management
+        - Training professionals designing scenarios
+    validations:
+      required: true
+
+  - type: textarea
+    id: epic_goals
+    attributes:
+      label: Epic Goals
+      description: What are the high-level goals this epic should achieve?
+      placeholder: |
+        - Goal 1: Enable realistic fire simulation
+        - Goal 2: Provide educational value
+        - Goal 3: Follow authentic ICS protocols
+    validations:
+      required: true
+
+  - type: textarea
+    id: success_criteria
+    attributes:
+      label: Success Criteria
+      description: How will we know this epic is successful?
+      placeholder: |
+        - [ ] Users can successfully complete fire scenarios
+        - [ ] Fire behavior follows realistic patterns
+        - [ ] Educational objectives are met
+        - [ ] Performance benchmarks achieved
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_stories
+    attributes:
+      label: User Stories
+      description: List of user stories that make up this epic (can be updated as epic evolves)
+      placeholder: |
+        - [ ] #XX: As an IC, I want to see fire spread simulation
+        - [ ] #XX: As a user, I want realistic resource deployment
+        - [ ] #XX: As a trainee, I want decision feedback
+    validations:
+      required: false
+
+  - type: dropdown
+    id: epic_priority
+    attributes:
+      label: Epic Priority
+      description: Business priority of this epic
+      options:
+        - 🔴 Critical (Must have for MVP)
+        - 🟠 High (Important for release)
+        - 🟡 Medium (Nice to have)
+        - 🟢 Low (Future consideration)
+    validations:
+      required: true
+
+  - type: textarea
+    id: timeline
+    attributes:
+      label: Target Timeline
+      description: Estimated timeline and milestones
+      placeholder: |
+        - Sprint 1-2: Foundation work
+        - Sprint 3-4: Core features
+        - Sprint 5: Testing and polish
+    validations:
+      required: false
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Other epics, external dependencies, or blockers
+      placeholder: |
+        - Depends on Epic #XX
+        - Requires external library research
+        - Blocked by infrastructure setup
+    validations:
+      required: false
+
+  - type: textarea
+    id: assumptions
+    attributes:
+      label: Assumptions & Risks
+      description: Key assumptions and potential risks
+      placeholder: |
+        Assumptions:
+        - Users have basic command line knowledge
+        - Python 3.8+ is acceptable requirement
+        
+        Risks:
+        - Performance issues with large fire grids
+        - Complexity of realistic fire modeling
+    validations:
+      required: false

@@ -1,0 +1,300 @@
+name: 📊 Agile Metrics & Reporting
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC (start of sprint week)
+    - cron: '0 9 * * MON'
+  workflow_dispatch:
+    inputs:
+      report_type:
+        description: 'Type of report to generate'
+        required: true
+        default: 'weekly'
+        type: choice
+        options:
+        - weekly
+        - sprint_summary
+        - velocity
+        - burndown
+
+jobs:
+  generate_metrics:
+    name: Generate Agile Metrics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Weekly Sprint Report
+        if: github.event.schedule || github.event.inputs.report_type == 'weekly'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get current sprint planning issue
+            const { data: sprintIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'sprint-planning',
+              state: 'open',
+              sort: 'created',
+              direction: 'desc'
+            });
+            
+            if (sprintIssues.length === 0) {
+              console.log('No active sprint found');
+              return;
+            }
+            
+            const currentSprint = sprintIssues[0];
+            
+            // Extract sprint number from title
+            const sprintMatch = currentSprint.title.match(/Sprint (\d+)/);
+            const sprintNumber = sprintMatch ? sprintMatch[1] : 'Current';
+            
+            // Get all issues with story points
+            const { data: allIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100
+            });
+            
+            // Extract story points from issue bodies or comments
+            let totalPoints = 0;
+            let completedPoints = 0;
+            let inProgressPoints = 0;
+            
+            const storyPointRegex = /(?:story\s*points?|points?)[:\s]*(\d+)/i;
+            
+            for (const issue of allIssues) {
+              if (issue.pull_request) continue; // Skip PRs
+              
+              const body = issue.body || '';
+              const pointsMatch = body.match(storyPointRegex);
+              
+              if (pointsMatch) {
+                const points = parseInt(pointsMatch[1]);
+                totalPoints += points;
+                
+                if (issue.state === 'closed') {
+                  completedPoints += points;
+                } else if (issue.labels.some(label => label.name === 'in-progress')) {
+                  inProgressPoints += points;
+                }
+              }
+            }
+            
+            const weeklyReport = `## 📊 Weekly Sprint Report - Sprint ${sprintNumber}
+            
+**Date:** ${new Date().toLocaleDateString()}
+**Sprint Status:** ${currentSprint.state === 'open' ? 'Active' : 'Completed'}
+
+### 📈 Sprint Metrics
+- **Total Story Points:** ${totalPoints}
+- **Completed Points:** ${completedPoints}
+- **In Progress Points:** ${inProgressPoints}
+- **Remaining Points:** ${totalPoints - completedPoints - inProgressPoints}
+- **Completion Rate:** ${totalPoints > 0 ? Math.round((completedPoints / totalPoints) * 100) : 0}%
+
+### 🔥 Progress Visualization
+${'█'.repeat(Math.floor((completedPoints / totalPoints) * 20))}${'▓'.repeat(Math.floor((inProgressPoints / totalPoints) * 20))}${'░'.repeat(20 - Math.floor(((completedPoints + inProgressPoints) / totalPoints) * 20))}
+
+**Legend:** █ Completed ▓ In Progress ░ Remaining
+
+### 📋 Sprint Health
+${completedPoints >= totalPoints * 0.8 ? '🟢 On Track' : completedPoints >= totalPoints * 0.6 ? '🟡 At Risk' : '🔴 Behind Schedule'}
+
+### 🎯 Focus Areas
+${inProgressPoints > 0 ? '- Complete in-progress items before starting new work' : ''}
+${(totalPoints - completedPoints - inProgressPoints) > 0 ? '- Plan remaining work for sprint completion' : ''}
+
+---
+*Generated automatically every Monday | Sprint tracking*`;
+
+            // Post report as comment on current sprint issue
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: currentSprint.number,
+              body: weeklyReport
+            });
+
+  velocity_tracking:
+    name: Track Team Velocity
+    runs-on: ubuntu-latest
+    if: github.event.inputs.report_type == 'velocity' || github.event.schedule
+    steps:
+      - name: Calculate Team Velocity
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get all closed sprint planning issues (completed sprints)
+            const { data: completedSprints } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'sprint-planning',
+              state: 'closed',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 6 // Last 6 sprints
+            });
+            
+            const velocityData = [];
+            
+            for (const sprint of completedSprints) {
+              const sprintMatch = sprint.title.match(/Sprint (\d+)/);
+              const sprintNumber = sprintMatch ? parseInt(sprintMatch[1]) : 0;
+              
+              // Extract completed points from sprint body or comments
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: sprint.number
+              });
+              
+              let completedPoints = 0;
+              const completedRegex = /completed.*?(\d+)\s*points?/i;
+              
+              // Check sprint body and comments for completed points
+              const allText = [sprint.body || '', ...comments.map(c => c.body)].join(' ');
+              const pointsMatch = allText.match(completedRegex);
+              
+              if (pointsMatch) {
+                completedPoints = parseInt(pointsMatch[1]);
+              }
+              
+              velocityData.push({
+                sprint: sprintNumber,
+                points: completedPoints,
+                date: sprint.closed_at
+              });
+            }
+            
+            const averageVelocity = velocityData.length > 0 
+              ? Math.round(velocityData.reduce((sum, sprint) => sum + sprint.points, 0) / velocityData.length)
+              : 0;
+            
+            const velocityReport = `## 🚀 Team Velocity Report
+            
+**Report Date:** ${new Date().toLocaleDateString()}
+**Measurement Period:** Last ${velocityData.length} sprints
+
+### 📊 Velocity Metrics
+- **Average Velocity:** ${averageVelocity} story points/sprint
+- **Velocity Trend:** ${velocityData.length >= 2 
+              ? (velocityData[0].points > velocityData[1].points ? '📈 Increasing' : 
+                 velocityData[0].points < velocityData[1].points ? '📉 Decreasing' : '➡️ Stable')
+              : '📊 Insufficient data'}
+
+### 📈 Sprint History
+${velocityData.map(sprint => 
+  `**Sprint ${sprint.sprint}:** ${sprint.points} points (${new Date(sprint.date).toLocaleDateString()})`
+).join('\n')}
+
+### 🎯 Velocity Chart
+${velocityData.map(sprint => 
+  `Sprint ${sprint.sprint}: ${'█'.repeat(Math.min(sprint.points, 20))} ${sprint.points} pts`
+).join('\n')}
+
+### 💡 Recommendations
+${averageVelocity < 10 ? '- Consider breaking down large stories into smaller tasks' : ''}
+${averageVelocity > 15 ? '- Team capacity is strong, consider taking on stretch goals' : ''}
+${velocityData.length < 3 ? '- Need more sprint data for accurate velocity prediction' : ''}
+
+---
+*Velocity tracking helps predict sprint capacity and improve planning accuracy*`;
+
+            // Find or create velocity tracking issue
+            const { data: velocityIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'velocity-tracking',
+              state: 'open'
+            });
+            
+            if (velocityIssues.length > 0) {
+              // Update existing velocity tracking issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: velocityIssues[0].number,
+                body: velocityReport
+              });
+            } else {
+              // Create new velocity tracking issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '📊 Team Velocity Tracking',
+                body: `# Team Velocity Dashboard
+
+This issue tracks team velocity over time to help with sprint planning and capacity estimation.
+
+${velocityReport}`,
+                labels: ['velocity-tracking', 'metrics']
+              });
+            }
+
+  burndown_chart:
+    name: Generate Sprint Burndown
+    runs-on: ubuntu-latest
+    if: github.event.inputs.report_type == 'burndown'
+    steps:
+      - name: Create Burndown Chart Data
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This would ideally integrate with a charting service
+            // For now, we'll create a text-based burndown representation
+            
+            const { data: currentSprint } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'sprint-planning',
+              state: 'open',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 1
+            });
+            
+            if (currentSprint.length === 0) {
+              console.log('No active sprint for burndown chart');
+              return;
+            }
+            
+            // Simple burndown chart representation
+            const burndownChart = `## 📉 Sprint Burndown Chart
+            
+**Current Sprint:** ${currentSprint[0].title}
+**Generated:** ${new Date().toLocaleDateString()}
+
+*Note: This is a simplified text representation. For detailed charts, consider integrating with visualization tools.*
+
+### 📊 Burndown Visualization
+\`\`\`
+Story Points Remaining
+20 |██████████░░░░░░░░░░
+18 |████████░░░░░░░░░░░░
+16 |██████░░░░░░░░░░░░░░
+14 |████░░░░░░░░░░░░░░░░  ← Current
+12 |██░░░░░░░░░░░░░░░░░░
+10 |░░░░░░░░░░░░░░░░░░░░
+ 8 |░░░░░░░░░░░░░░░░░░░░
+ 6 |░░░░░░░░░░░░░░░░░░░░
+ 4 |░░░░░░░░░░░░░░░░░░░░
+ 2 |░░░░░░░░░░░░░░░░░░░░
+ 0 |________________________________
+   Day 1  3  5  7  9  11 13 (Sprint End)
+\`\`\`
+
+### 🎯 Burndown Insights
+- **Ideal Burndown:** Steady decline to zero by sprint end
+- **Actual Progress:** Monitor daily to stay on track
+- **Adjustments Needed:** If behind, consider scope reduction
+
+---
+*For real-time burndown charts, integrate with project management tools*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: currentSprint[0].number,
+              body: burndownChart
+            });

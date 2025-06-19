@@ -1,0 +1,95 @@
+name: 🐛 Bug Report
+description: Report a bug or issue
+title: "[BUG] "
+labels: ["bug"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us reproduce and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: Describe what happened and what you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+      placeholder: A clear description of what you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: A clear description of what actually happened
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - 🔴 Critical (Blocks development/release)
+        - 🟠 High (Major functionality broken)
+        - 🟡 Medium (Minor functionality issue)
+        - 🟢 Low (Cosmetic or enhancement)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Environment details
+      placeholder: |
+        - OS: [e.g. Ubuntu 20.04, Windows 10, macOS 12]
+        - Python Version: [e.g. 3.9.7]
+        - Terminal: [e.g. bash, zsh, PowerShell]
+        - Rich Version: [e.g. 13.3.1]
+    validations:
+      required: false
+
+  - type: textarea
+    id: error_logs
+    attributes:
+      label: Error Logs
+      description: Any relevant error messages or logs
+      render: shell
+      placeholder: Paste any error messages, stack traces, or relevant logs here
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Any additional context about the problem
+      placeholder: Screenshots, related issues, or any other context that might help
+    validations:
+      required: false
