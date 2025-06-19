@@ -17,6 +17,10 @@ on:
         - velocity
         - burndown
 
+permissions:
+  issues: write
+  contents: read
+
 jobs:
   generate_metrics:
     name: Generate Agile Metrics

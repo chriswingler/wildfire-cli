@@ -17,6 +17,10 @@ on:
         required: true
         type: string
 
+permissions:
+  issues: write
+  contents: read
+
 jobs:
   prepare_sprint_planning:
     name: Prepare Sprint Planning

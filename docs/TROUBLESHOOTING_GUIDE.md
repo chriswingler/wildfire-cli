@@ -340,6 +340,97 @@ wildfire-cli/
 - Provide scope-minimal solutions
 - Document permission requirements clearly
 
+## GitHub Actions Workflow Issues
+
+### 13. Workflow File Syntax and Permission Errors
+
+**Error:**
+```bash
+gh run list
+# Shows: completed failure (0s duration)
+
+gh run view RUN_ID
+# Error: This run likely failed because of a workflow file issue
+```
+
+**Root Cause:**
+- Missing permissions in workflow files
+- Invalid event types in triggers
+- Complex conditional logic without error handling
+- YAML syntax errors
+
+**Solution:**
+```yaml
+# Add explicit permissions
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+# Use valid event types only
+on:
+  pull_request:
+    types: [opened, closed, ready_for_review]  # Not 'merged'
+
+# Add error handling in scripts
+- uses: actions/github-script@v7
+  with:
+    script: |
+      try {
+        // Automation logic
+      } catch (error) {
+        console.log(`Error: ${error.message}`);
+      }
+```
+
+**Prevention:**
+- Start with simple workflows and add complexity incrementally
+- Test workflows with `workflow_dispatch` trigger first
+- Add explicit permissions for all required operations
+- Use comprehensive error handling in scripts
+- Validate GitHub Actions syntax before committing
+
+### 14. Overly Complex Initial Automation
+
+**Issue:** Implementing comprehensive automation features before establishing basic functionality
+
+**Problems:**
+- Complex conditional logic fails without proper context
+- Multiple failure points in single workflow
+- Assumptions about event structure and data availability
+- No fallback for missing context or permissions
+
+**Solution:**
+- Create minimal working workflow first
+- Add features one at a time
+- Test each addition before proceeding
+- Provide graceful degradation for missing features
+- Use simple string operations instead of complex regex
+
+**Example Simple Workflow:**
+```yaml
+name: Basic Automation
+on:
+  issues:
+    types: [opened]
+permissions:
+  issues: write
+jobs:
+  simple_task:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('Workflow executed successfully');
+```
+
+**Prevention:**
+- Follow incremental development approach
+- Test workflows in isolation
+- Document each automation feature separately
+- Provide manual alternatives for complex automation
+
 ## Quick Reference: Common Commands
 
 ### Check GitHub CLI Status
