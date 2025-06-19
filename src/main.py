@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 import asyncio
 import os
 import logging
-from commands_simple import setup
+from discord_wildfire import setup_wildfire_commands
 from aiohttp import web
 
 load_dotenv()
@@ -54,8 +54,8 @@ async def main():
     - Health check server for DigitalOcean
     - Event loop management
     """
-    # Setup Discord bot
-    await setup(bot)
+    # Setup Discord bot with Sprint 2 singleplayer mode
+    await setup_wildfire_commands(bot)
     
     # Start both health server and Discord bot concurrently
     await asyncio.gather(

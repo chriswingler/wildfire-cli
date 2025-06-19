@@ -164,6 +164,33 @@ class WildfireCommands(commands.Cog):
         self.game = WildfireGame()
         self.singleplayer_game = SingleplayerGame()
         
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Bot startup handler."""
+        await self.bot.change_presence(activity=discord.Game(name="🔥 Wildfire Response MMORPG"))
+        
+        # Debug command tree state
+        commands_in_tree = [cmd.name for cmd in self.bot.tree.get_commands()]
+        print(f"🔥 Commands in tree: {commands_in_tree}")
+        
+        # Copy global commands to each guild then sync
+        try:
+            total_synced = 0
+            for guild in self.bot.guilds:
+                # Copy global commands to this guild
+                self.bot.tree.copy_global_to(guild=guild)
+                
+                # Now sync guild-specific commands (includes copied globals)
+                synced = await self.bot.tree.sync(guild=guild)
+                total_synced += len(synced)
+                print(f"🔥 Synced {len(synced)} commands to guild {guild.name}")
+                
+            print(f"🔥 Total {total_synced} wildfire commands synced")
+        except Exception as e:
+            print(f"Failed to sync commands: {e}")
+            
+        print(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
+        
     @discord.app_commands.command(name="fire", description="Report a new wildfire incident")
     async def fire_command(self, interaction: discord.Interaction):
         """Create new wildfire incident - context-aware for DM vs Guild."""
@@ -437,13 +464,7 @@ class WildfireCommands(commands.Cog):
 async def setup_wildfire_commands(bot):
     """
     @brief Add wildfire commands to existing bot
-    @details Simple integration function for BlazeBot
+    @details Context-aware commands for both DM and Guild modes
     """
     await bot.add_cog(WildfireCommands(bot))
-    
-    # Sync slash commands
-    try:
-        synced = await bot.tree.sync()
-        print(f"🔥 Synced {len(synced)} wildfire commands")
-    except Exception as e:
-        print(f"Failed to sync wildfire commands: {e}")
+    print("🔥 Wildfire commands cog loaded - syncing will happen on ready")
