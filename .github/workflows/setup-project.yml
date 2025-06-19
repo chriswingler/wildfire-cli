@@ -1,0 +1,186 @@
+# GitHub Actions Workflow for Project Setup
+# Alternative to manual GitHub CLI when project scopes aren't available
+
+name: Setup GitHub Project Board
+
+on:
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      create_project:
+        description: 'Create new GitHub project board'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  issues: read
+  contents: read
+
+jobs:
+  setup-project:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup GitHub CLI
+        run: |
+          gh --version
+          
+      - name: Create GitHub Project
+        if: ${{ inputs.create_project }}
+        env:
+          # Requires Personal Access Token with project scopes
+          GH_TOKEN: ${{ secrets.PROJECT_MANAGEMENT_TOKEN }}
+        run: |
+          echo "🚀 Creating GitHub Project..."
+          
+          # Get repository owner ID
+          REPO_OWNER_ID=$(gh api graphql -f query='
+          {
+            repository(owner: "${{ github.repository_owner }}", name: "${{ github.event.repository.name }}") {
+              owner {
+                id
+              }
+            }
+          }' --jq '.data.repository.owner.id')
+          
+          echo "Repository Owner ID: $REPO_OWNER_ID"
+          
+          # Create project
+          PROJECT_RESULT=$(gh api graphql -f query="
+          mutation {
+            createProjectV2(input: {
+              ownerId: \"$REPO_OWNER_ID\"
+              title: \"Wildfire CLI Development\"
+              description: \"Sprint planning and kanban workflow for wildfire-cli development\"
+            }) {
+              projectV2 {
+                id
+                number
+                title
+                url
+              }
+            }
+          }")
+          
+          PROJECT_ID=$(echo "$PROJECT_RESULT" | jq -r '.data.createProjectV2.projectV2.id')
+          PROJECT_URL=$(echo "$PROJECT_RESULT" | jq -r '.data.createProjectV2.projectV2.url')
+          
+          echo "✅ Project Created: $PROJECT_URL"
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+          echo "PROJECT_URL=$PROJECT_URL" >> $GITHUB_ENV
+          
+      - name: Link Repository to Project
+        if: ${{ inputs.create_project }}
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_MANAGEMENT_TOKEN }}
+        run: |
+          # Link repository to project
+          gh api graphql -f query="
+          mutation {
+            linkRepositoryToProjectV2(input: {
+              projectId: \"$PROJECT_ID\"
+              repositoryId: \"${{ github.event.repository.node_id }}\"
+            }) {
+              repository {
+                id
+              }
+            }
+          }"
+          
+          echo "🔗 Repository linked to project"
+          
+      - name: Add Issues to Project
+        if: ${{ inputs.create_project }}
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_MANAGEMENT_TOKEN }}
+        run: |
+          echo "📝 Adding existing issues to project..."
+          
+          # Get all issues
+          gh issue list --json number,nodeId,title --limit 100 | jq -r '.[] | "\(.number) \(.nodeId) \(.title)"' | while read number node_id title; do
+            echo "  Adding Issue #$number: $title"
+            
+            # Add issue to project
+            gh api graphql -f query="
+            mutation {
+              addProjectV2ItemByContentId(input: {
+                projectId: \"$PROJECT_ID\"
+                contentId: \"$node_id\"
+              }) {
+                item {
+                  id
+                }
+              }
+            }" > /dev/null
+          done
+          
+          echo "✅ All issues added to project"
+          
+      - name: Create Project Views
+        if: ${{ inputs.create_project }}
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_MANAGEMENT_TOKEN }}
+        run: |
+          echo "🔍 Creating project views..."
+          
+          # Kanban Workflow View
+          gh api graphql -f query="
+          mutation {
+            createProjectV2View(input: {
+              projectId: \"$PROJECT_ID\"
+              name: \"Kanban Workflow\"
+              layout: BOARD_LAYOUT
+            }) {
+              projectV2View {
+                id
+                name
+              }
+            }
+          }" > /dev/null
+          
+          # Sprint Planning View
+          gh api graphql -f query="
+          mutation {
+            createProjectV2View(input: {
+              projectId: \"$PROJECT_ID\"
+              name: \"Sprint Planning\"
+              layout: BOARD_LAYOUT
+            }) {
+              projectV2View {
+                id
+                name
+              }
+            }
+          }" > /dev/null
+          
+          # Work Stream View
+          gh api graphql -f query="
+          mutation {
+            createProjectV2View(input: {
+              projectId: \"$PROJECT_ID\"
+              name: \"Work Streams\"
+              layout: BOARD_LAYOUT
+            }) {
+              projectV2View {
+                id
+                name
+              }
+            }
+          }" > /dev/null
+          
+          echo "✅ Project views created"
+          
+      - name: Setup Summary
+        if: ${{ inputs.create_project }}
+        run: |
+          echo "🎉 GitHub Project setup complete!"
+          echo "   Project URL: $PROJECT_URL"
+          echo ""
+          echo "📋 Next Steps:"
+          echo "   1. Configure view groupings in GitHub UI"
+          echo "   2. Set up project automation rules"
+          echo "   3. Add story point values to issues"
+          echo ""
+          echo "🔗 Ready for Sprint 4 execution!"
