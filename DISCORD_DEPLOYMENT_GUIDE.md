@@ -1,28 +1,26 @@
-# 🔥 Discord Wildfire Game - Immediate Deployment Guide
+# 🔥 Discord Wildfire MMORPG - Standalone Bot Deployment
 
 ## ⚡ Quick Start (5 Minutes)
 
-### Step 1: Copy Files to BlazeBot
+### Step 1: Install Dependencies
 ```bash
-# Copy the wildfire game module to your BlazeBot directory
-cp src/discord_wildfire.py /path/to/blazebot/
+# Install required packages
+pip install -r requirements.txt
 ```
 
-### Step 2: Update BlazeBot Commands
-Add this import to the top of your `commands.py`:
-```python
-from discord_wildfire import setup_wildfire_commands
-```
-
-Add this line to the end of your `setup()` function in `commands.py`:
-```python
-await setup_wildfire_commands(bot)
-```
-
-### Step 3: Restart BlazeBot
+### Step 2: Configure Bot Token
 ```bash
-# Restart your BlazeBot
-python main.py
+# Copy environment template
+cp .env.example .env
+
+# Edit .env and add your Discord bot token
+# Get token from: https://discord.com/developers/applications
+```
+
+### Step 3: Run the Wildfire Bot
+```bash
+# Run the standalone wildfire Discord bot
+python src/main.py
 ```
 
 ### Step 4: Test Commands
@@ -49,21 +47,23 @@ In your Discord server:
 
 ### Following Coding Standards
 - ✅ Functions under 60 lines
-- ✅ Single responsibility principle
+- ✅ Single responsibility principle  
 - ✅ Descriptive naming conventions
 - ✅ Simple error handling
 - ✅ KISS principle implementation
+- ✅ YAGNI - only essential dependencies
 
 ### Data Storage
-- **In-Memory**: Current implementation (resets on bot restart)
-- **Future**: SQLite database for persistence
+- **SQLite Database**: Persistent game state across bot restarts
+- **Async Operations**: Non-blocking database operations
+- **Multi-Server**: Independent game states per Discord server
 - **Scalable**: Ready for UEMini backend integration
 
 ### Discord Integration
 - **Slash Commands**: Modern Discord command interface
-- **Embeds**: Professional information display
-- **Color Coding**: Visual fire severity indicators
-- **Real-Time Updates**: Live status progression
+- **Rich Embeds**: Professional information display with color coding
+- **Rate Limiting**: Built-in cooldown management
+- **Error Handling**: Robust exception handling and logging
 
 ## 🚀 Next Steps
 
@@ -109,8 +109,16 @@ This implementation follows **KISS principles** from your coding standards:
 - **Simple state management**
 - **Easy to extend** architecture
 
-**Time to add**: ~2 minutes to existing BlazeBot
-**Time to test**: ~30 seconds in Discord
+**Time to deploy**: ~5 minutes for standalone bot
+**Time to test**: ~30 seconds in Discord  
 **Community ready**: Immediately!
+
+## 🚀 Architecture Benefits
+
+This repurposed architecture provides:
+- **Proven Infrastructure**: BlazeBot's robust Discord framework
+- **Clean Codebase**: Simplified, focused on wildfire game only
+- **Professional Features**: Rate limiting, error handling, logging
+- **Scalable Foundation**: Ready for MMORPG feature expansion
 
 Go make some fires! 🚒
