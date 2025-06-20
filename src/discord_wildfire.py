@@ -15,6 +15,9 @@ from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
+from typing import Optional, List
+import io
+from discord.app_commands import Choice
 from config.settings import config
 
 
@@ -1014,6 +1017,59 @@ class WildfireCommands(commands.Cog):
         self.game = WildfireGame()
         self.singleplayer_game = SingleplayerGame()
         self.auto_progression_task = None
+        # TODO: Implement comprehensive audit logging for all /modlog accesses and exports to a persistent database.
+        self.mock_mod_logs = [
+            {
+                "user_id": 123456789012345678, # Example User 1
+                "action_type": "warn",
+                "timestamp": datetime.now() - timedelta(days=1),
+                "moderator_id": 987654321098765432, # Example Mod 1
+                "reason": "Spamming in #general",
+                "guild_id": 112233445566778899, # Example Guild 1
+            },
+            {
+                "user_id": 123456789012345678, # Example User 1
+                "action_type": "timeout",
+                "timestamp": datetime.now() - timedelta(days=3),
+                "moderator_id": 987654321098765432, # Example Mod 1
+                "reason": "Repeated offenses",
+                "guild_id": 112233445566778899, # Example Guild 1
+            },
+            {
+                "user_id": 876543210987654321, # Example User 2
+                "action_type": "ban",
+                "timestamp": datetime.now() - timedelta(days=10),
+                "moderator_id": 123123123123123123, # Example Mod 2
+                "reason": "Hate speech",
+                "guild_id": 112233445566778899, # Example Guild 1
+                "log_id": "MOCK_BAN_001" # Added for linking to appeal
+            },
+            {
+                "user_id": 123456789012345678, # Example User 1
+                "action_type": "warn",
+                "timestamp": datetime.now() - timedelta(days=15),
+                "moderator_id": 987654321098765432, # Example Mod 1
+                "reason": "Off-topic discussion in #rules",
+                "guild_id": 223344556677889900, # Example Guild 2
+            },
+        ]
+        # TODO: Integrate with a full audit system. For admin overrides, consider if lower roles could issue warnings that admins can then manage/override.
+        self.mock_user_warnings = {
+            123456789012345678: [
+                {'warning_id': 1, 'timestamp': datetime.now() - timedelta(days=10), 'moderator_id': 987654321098765432, 'reason': 'Minor spamming in #off-topic', 'guild_id': 112233445566778899, 'level': 1},
+                {'warning_id': 2, 'timestamp': datetime.now() - timedelta(days=5), 'moderator_id': 987654321098765432, 'reason': 'Disrespectful comments towards another user', 'guild_id': 112233445566778899, 'level': 2},
+                {'warning_id': 3, 'timestamp': datetime.now() - timedelta(days=20), 'moderator_id': 123123123123123123, 'reason': 'Posting spoilers without tags', 'guild_id': 223344556677889900, 'level': 1},
+            ],
+            876543210987654321: [
+                {'warning_id': 4, 'timestamp': datetime.now() - timedelta(days=30), 'moderator_id': 123123123123123123, 'reason': 'Excessive use of ALL CAPS', 'guild_id': 112233445566778899, 'level': 1},
+            ]
+        }
+        self.mock_appeals = [
+            {'appeal_id': f'APP001', 'user_id': 876543210987654321, 'reason': 'Ban was unfair, I learned my lesson.', 'status': 'pending', 'timestamp': datetime.now() - timedelta(days=1), 'guild_id': 112233445566778899, 'moderation_action_id': 'MOCK_BAN_001', 'actioned_by': None, 'action_reason': None, 'message_id_to_edit': None},
+            {'appeal_id': f'APP002', 'user_id': 123456789012345678, 'reason': 'Timeout was too long for the offense.', 'status': 'pending', 'timestamp': datetime.now() - timedelta(days=2), 'guild_id': 112233445566778899, 'moderation_action_id': None, 'actioned_by': None, 'action_reason': None, 'message_id_to_edit': None},
+            {'appeal_id': f'APP003', 'user_id': 123456789012345678, 'reason': 'I disagree with warning W001.', 'status': 'denied', 'timestamp': datetime.now() - timedelta(days=8), 'guild_id': 112233445566778899, 'moderation_action_id': 'W001', 'actioned_by': 987654321098765432, 'action_reason': 'Warning was justified by server rules section 3.2.', 'message_id_to_edit': None},
+            {'appeal_id': f'APP004', 'user_id': 876543210987654321, 'reason': 'Appeal for a different server.', 'status': 'pending', 'timestamp': datetime.now() - timedelta(days=1), 'guild_id': 223344556677889900, 'moderation_action_id': 'MOCK_BAN_002', 'actioned_by': None, 'action_reason': None, 'message_id_to_edit': None},
+        ]
 
         # Load admin user IDs for debug commands
         admin_ids_str = os.getenv("ADMIN_USER_IDS", "")
@@ -2241,6 +2297,467 @@ Use `/stop` to see your performance report."""
                 print(f"Error in auto-progression loop: {e}")
                 await asyncio.sleep(30)  # Wait longer on error
 
+    @discord.app_commands.command(name="modlog", description="View moderation action history")
+    @discord.app_commands.checks.has_permissions(manage_messages=True)
+    @discord.app_commands.choices(action=[
+        Choice(name="Warn", value="warn"),
+        Choice(name="Timeout", value="timeout"),
+        Choice(name="Ban", value="ban"),
+    ])
+    @discord.app_commands.describe(
+        user="User to filter logs for",
+        action="Action type to filter logs for",
+        days="Number of days to look back (1-30, default 7)"
+    )
+    async def modlog_command(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.Member] = None,
+        action: Optional[Choice[str]] = None,
+        days: Optional[discord.app_commands.Range[int, 1, 30]] = 7
+    ):
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.guild:
+            await interaction.followup.send(embed=HUDComponents.create_error_embed("Command Error", "This command can only be used in a server."))
+            return
+
+        action_value = action.value if action else None
+        time_limit = datetime.now() - timedelta(days=days)
+
+        filtered_logs = sorted([
+            log for log in self.mock_mod_logs
+            if log["guild_id"] == interaction.guild.id and \
+               (not user or log["user_id"] == user.id) and \
+               (not action_value or log["action_type"] == action_value) and \
+               log["timestamp"] >= time_limit
+        ], key=lambda x: x["timestamp"], reverse=True)
+
+        if not filtered_logs:
+            embed = HUDComponents.create_simple_info_embed(
+                title="No Logs Found",
+                message="No moderation logs found matching your criteria.",
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        view = ModLogView(bot=self.bot, interaction=interaction, logs=filtered_logs)
+        await view.send_initial_message()
+
+class ModLogView(discord.ui.View):
+    ITEMS_PER_PAGE = 5
+
+    def __init__(self, bot: commands.Bot, interaction: discord.Interaction, logs: List[dict]):
+        super().__init__(timeout=180.0)
+        self.bot = bot
+        self.interaction = interaction
+        self.logs = logs
+        self.current_page = 0
+        self.total_pages = (len(self.logs) + self.ITEMS_PER_PAGE - 1) // self.ITEMS_PER_PAGE
+        self._update_buttons()
+
+    def _update_buttons(self):
+        if hasattr(self, 'prev_button'):
+            self.prev_button.disabled = self.current_page == 0
+        if hasattr(self, 'next_button'):
+            self.next_button.disabled = self.current_page >= self.total_pages - 1
+
+    async def format_log_entry(self, log_entry: dict) -> str:
+        moderator = self.interaction.guild.get_member(log_entry["moderator_id"]) or \
+                    await self.bot.fetch_user(log_entry["moderator_id"])
+        mod_name = f"{moderator.name}#{moderator.discriminator}" if moderator else f"ID: {log_entry['moderator_id']}"
+
+        target_user_obj = self.interaction.guild.get_member(log_entry["user_id"]) or \
+                      await self.bot.fetch_user(log_entry["user_id"])
+        user_name = f"{target_user_obj.name}#{target_user_obj.discriminator}" if target_user_obj else "Unknown User"
+        user_id_str = f"(ID: `{log_entry['user_id']}`)"
+
+
+        return (
+            f"{HUDEmojis.ACTION} **Action:** `{log_entry['action_type'].upper()}` by Moderator `{mod_name}`\n"
+            f"{HUDEmojis.USER} **User:** `{user_name}` {user_id_str}\n"
+            f"{HUDEmojis.INFO} **Reason:** `{log_entry.get('reason', 'N/A')}`\n"
+            f"{HUDEmojis.TIME} **Date:** `{log_entry['timestamp'].strftime('%Y-%m-%d %H:%M UTC')}`"
+        )
+
+    async def create_embed_for_page(self) -> discord.Embed:
+        start_index = self.current_page * self.ITEMS_PER_PAGE
+        end_index = start_index + self.ITEMS_PER_PAGE
+        page_logs = self.logs[start_index:end_index]
+
+        embed_description = ""
+        for log in page_logs:
+            embed_description += await self.format_log_entry(log) + "\n\n"
+
+        if not embed_description: # Should not happen if logs exist, but as a safeguard
+            embed_description = "No logs on this page."
+
+        embed = HUDComponents.create_minimal_embed(
+            title=f"Moderation Log - Page {self.current_page + 1}/{self.total_pages}",
+            description=embed_description.strip()
+        )
+        embed.color = HUDColors.INFO
+        return embed
+
+    async def send_initial_message(self):
+        self.prev_button = discord.ui.Button(label="⬅️ Previous", style=discord.ButtonStyle.secondary, custom_id="modlog_prev")
+        self.next_button = discord.ui.Button(label="Next ➡️", style=discord.ButtonStyle.primary, custom_id="modlog_next")
+        self.export_button = discord.ui.Button(label="Export Logs", style=discord.ButtonStyle.success, custom_id="modlog_export")
+
+        self.prev_button.callback = self.prev_page
+        self.next_button.callback = self.next_page
+        self.export_button.callback = self.export_logs # Placeholder
+
+        self.clear_items() # Clear any default buttons if view is reused
+        self.add_item(self.prev_button)
+        self.add_item(self.next_button)
+        self.add_item(self.export_button)
+        self._update_buttons()
+
+        embed = await self.create_embed_for_page()
+        await self.interaction.followup.send(embed=embed, view=self, ephemeral=True)
+
+    async def update_message(self, interaction: discord.Interaction):
+        self._update_buttons()
+        embed = await self.create_embed_for_page()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def prev_page(self, interaction: discord.Interaction):
+        if self.current_page > 0:
+            self.current_page -= 1
+            await self.update_message(interaction)
+        else: # Should be disabled, but as a safeguard
+            await interaction.response.defer()
+
+
+    async def next_page(self, interaction: discord.Interaction):
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+            await self.update_message(interaction)
+        else: # Should be disabled, but as a safeguard
+            await interaction.response.defer()
+
+    async def export_logs(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        log_string = f"Moderation Log Export\n"
+        # Correctly access command options from the original interaction, not self.interaction within the view if it's different
+        # For this structure, self.interaction is the original command interaction, so it's fine.
+        options = self.interaction.data.get('options', [])
+        user_opt = next((opt['value'] for opt in options if opt['name'] == 'user'), 'Not specified')
+        action_opt = next((opt['value'] for opt in options if opt['name'] == 'action'), 'Not specified')
+        days_opt = next((opt['value'] for opt in options if opt['name'] == 'days'), 7)
+
+        log_string += f"Filters: User ID: {user_opt}, Action: {action_opt}, Days: {days_opt}\n"
+        log_string += f"Exported by: {interaction.user.name}#{interaction.user.discriminator} ({interaction.user.id})\n"
+        log_string += f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n"
+        log_string += "=" * 30 + "\n\n"
+
+        for log_entry in self.logs: # self.logs contains all filtered logs
+            moderator = self.interaction.guild.get_member(log_entry["moderator_id"]) or \
+                        await self.bot.fetch_user(log_entry["moderator_id"])
+            mod_name = f"{moderator.name}#{moderator.discriminator}" if moderator else f"ID: {log_entry['moderator_id']}"
+
+            target_user_obj = self.interaction.guild.get_member(log_entry["user_id"]) or \
+                          await self.bot.fetch_user(log_entry["user_id"])
+            user_name = f"{target_user_obj.name}#{target_user_obj.discriminator}" if target_user_obj else "Unknown User"
+
+            log_string += (
+                f"Action: {log_entry['action_type'].upper()}\n"
+                f"User: {user_name} (ID: {log_entry['user_id']})\n"
+                f"Moderator: {mod_name}\n"
+                f"Reason: {log_entry.get('reason', 'N/A')}\n"
+                f"Date: {log_entry['timestamp'].strftime('%Y-%m-%d %H:%M UTC')}\n"
+                f"---\n"
+            )
+
+        if not self.logs:
+            log_string += "No logs found for the selected criteria.\n"
+
+        log_bytes = log_string.encode('utf-8')
+        file = discord.File(io.BytesIO(log_bytes), filename="modlog.txt")
+
+        try:
+            await interaction.followup.send("Exported logs:", file=file, ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Error exporting logs: {e}", ephemeral=True)
+
+    @discord.app_commands.command(name="warnings", description="Check user warning status and history")
+    @discord.app_commands.checks.has_permissions(manage_messages=True)
+    @discord.app_commands.describe(user="The user to check warnings for")
+    async def warnings_command(self, interaction: discord.Interaction, user: discord.Member):
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.guild:
+            await interaction.followup.send(embed=HUDComponents.create_error_embed("Command Error", "This command can only be used in a server."))
+            return
+
+        user_warnings_in_guild = [
+            w for w in self.mock_user_warnings.get(user.id, [])
+            if w["guild_id"] == interaction.guild.id
+        ]
+
+        sorted_warnings = sorted(user_warnings_in_guild, key=lambda x: x["timestamp"], reverse=True)
+
+        if not sorted_warnings:
+            embed = HUDComponents.create_simple_info_embed(
+                title=f"{HUDEmojis.SUCCESS} No Warnings Found",
+                message=f"`{user.display_name}` has no warnings in this server.",
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        highest_level = 0
+        warnings_details = ""
+        for i, warning in enumerate(sorted_warnings):
+            if i >= 5 and len(sorted_warnings) > 5: # Limit to 5 most recent if more than 5
+                 warnings_details += f"\n{HUDEmojis.INFO} *And {len(sorted_warnings) - 5} more older warnings...*"
+                 break
+            highest_level = max(highest_level, warning.get("level", 0))
+            mod = interaction.guild.get_member(warning["moderator_id"]) or await self.bot.fetch_user(warning["moderator_id"])
+            mod_name = f"{mod.name}#{mod.discriminator}" if mod else f"ID: {warning['moderator_id']}"
+
+            warnings_details += (
+                f"{HUDEmojis.INFO} **Warning ID:** `W{str(warning['warning_id']).zfill(3)}` | **Level:** `{warning.get('level', 'N/A')}`\n"
+                f"{HUDEmojis.COMMAND} **Moderator:** `{mod_name}`\n"
+                f"{HUDEmojis.TIME} **Date:** `{warning['timestamp'].strftime('%Y-%m-%d %H:%M UTC')}`\n"
+                f"{HUDEmojis.BULLET} **Reason:** `{warning.get('reason', 'N/A')}`\n\n"
+            )
+
+        embed_color = HUDColors.INFO
+        if highest_level == 2:
+            embed_color = HUDColors.WARNING
+        elif highest_level >= 3:
+            embed_color = HUDColors.CRITICAL
+
+        summary = f"Total Warnings: `{len(sorted_warnings)}` | Highest Level: `{highest_level if highest_level > 0 else 'N/A'}`"
+
+        embed = HUDComponents.create_minimal_embed(
+            title=f"{HUDEmojis.WARNING} User Warning Log: {user.display_name}",
+            description=summary
+        )
+        embed.color = embed_color
+        embed.add_field(name="Recent Warnings", value=warnings_details.strip() if warnings_details else "No details available.", inline=False)
+        embed.set_footer(text="Further analysis of violation patterns and trends would be available in a full system.")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+# Future Moderation System Enhancements:
+# - Implement a granular role-based access control (RBAC) system.
+# - Add admin override capabilities for all moderation actions if lower-tier moderator roles are introduced.
+# - Ensure all moderation actions and command usages are logged for audit purposes.
+
+class AppealActionView(discord.ui.View):
+    def __init__(self, cog: 'WildfireCommands', appeal_id: str):
+        super().__init__(timeout=None) # Persistent view, or use a short timeout if preferred
+        self.cog = cog
+        self.appeal_id = appeal_id
+
+        # Button custom_ids are now directly used by Discord, but we can still use them for logic if needed
+        # Or pass data through button constructor if creating them dynamically for each appeal item (more complex for pagination)
+        approve_button = discord.ui.Button(label="Approve ✅", style=discord.ButtonStyle.success, custom_id=f"appeal_approve_{self.appeal_id}")
+        approve_button.callback = self.approve_callback
+        self.add_item(approve_button)
+
+        deny_button = discord.ui.Button(label="Deny ❌", style=discord.ButtonStyle.danger, custom_id=f"appeal_deny_{self.appeal_id}")
+        deny_button.callback = self.deny_callback
+        self.add_item(deny_button)
+
+    async def _update_appeal_status(self, interaction: discord.Interaction, new_status: str, reason: Optional[str] = "Actioned by admin."):
+        if not interaction.user.guild_permissions.administrator: # type: ignore
+            await interaction.response.send_message("❌ You do not have permission to manage appeals.", ephemeral=True)
+            return
+
+        # TODO: Log this appeal action (approve/deny) to a dedicated audit log, including details of the appeal, admin, and timestamp.
+        appeal_to_update = None
+        appeal_index = -1
+        for i, appeal_item in enumerate(self.cog.mock_appeals):
+            if appeal_item["appeal_id"] == self.appeal_id and appeal_item["guild_id"] == interaction.guild_id:
+                if appeal_item["status"] != "pending":
+                    await interaction.response.send_message(f"{HUDEmojis.WARNING} This appeal (ID: {self.appeal_id}) has already been actioned to `{appeal_item['status'].upper()}`.", ephemeral=True)
+                    # Disable buttons on the view if it's somehow still active
+                    for child in self.children:
+                        if isinstance(child, discord.ui.Button):
+                            child.disabled = True
+                    try:
+                        await interaction.message.edit(view=self) # type: ignore
+                    except Exception: # Message might not exist or be editable
+                        pass
+                    return
+                appeal_to_update = appeal_item
+                appeal_index = i
+                break
+
+        if not appeal_to_update:
+            await interaction.response.send_message(f"{HUDEmojis.CRITICAL} Error: Appeal ID {self.appeal_id} not found or does not belong to this server.", ephemeral=True)
+            return
+
+        # Update the appeal in the main list
+        appeal_to_update["status"] = new_status
+        appeal_to_update["actioned_by"] = interaction.user.id
+        appeal_to_update["action_reason"] = reason
+        self.cog.mock_appeals[appeal_index] = appeal_to_update # Ensure the list is updated
+
+        # Update the original message
+        user = interaction.guild.get_member(appeal_to_update["user_id"]) or await self.cog.bot.fetch_user(appeal_to_update["user_id"]) # type: ignore
+        user_name = f"{user.name}#{user.discriminator}" if user else f"ID: {appeal_to_update['user_id']}"
+
+        actioned_by_user = interaction.guild.get_member(appeal_to_update['actioned_by']) or await self.cog.bot.fetch_user(appeal_to_update['actioned_by']) # type: ignore
+        actioned_by_name = f"{actioned_by_user.name}#{actioned_by_user.discriminator}" if actioned_by_user else "N/A"
+
+        embed_color = HUDColors.SUCCESS if new_status == "approved" else HUDColors.CRITICAL
+        status_emoji = HUDEmojis.SUCCESS if new_status == "approved" else HUDEmojis.CRITICAL
+
+        new_embed = HUDComponents.create_minimal_embed(
+            title=f"{status_emoji} Appeal {new_status.capitalize()}: {self.appeal_id}",
+            description=(
+                f"**User:** `{user_name}` (ID: `{appeal_to_update['user_id']}`)\n"
+                f"**Submitted:** `{appeal_to_update['timestamp'].strftime('%Y-%m-%d %H:%M UTC')}`\n"
+                f"**Reason for Appeal:** {appeal_to_update['reason']}\n"
+                f"**Linked Action ID:** `{appeal_to_update.get('moderation_action_id', 'N/A')}`\n\n"
+                f"**Status:** `{new_status.upper()}` by `{actioned_by_name}`\n"
+                f"**Action Reason:** `{appeal_to_update.get('action_reason', 'N/A')}`"
+            )
+        )
+        new_embed.color = embed_color
+        new_embed.set_footer(text="Full appeal history, statistics, and user notifications would be part of a complete system.")
+
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+        try:
+            await interaction.message.edit(embed=new_embed, view=self) # type: ignore
+            await interaction.response.send_message(f"{HUDEmojis.SUCCESS} Appeal {self.appeal_id} has been **{new_status.upper()}**.", ephemeral=True)
+        except discord.NotFound:
+             await interaction.response.send_message(f"{HUDEmojis.WARNING} Original interaction message for appeal {self.appeal_id} not found. Status updated, but message could not be edited. It may have expired.", ephemeral=True)
+        except Exception as e:
+            print(f"Error editing original appeal message: {e}")
+            await interaction.response.send_message(f"{HUDEmojis.CRITICAL} Status for appeal {self.appeal_id} updated to {new_status}, but there was an error updating the original message display.", ephemeral=True)
+
+    async def approve_callback(self, interaction: discord.Interaction):
+        # In a real system, you might use a Modal to ask for an approval reason
+        await self._update_appeal_status(interaction, "approved", "Appeal approved by administrator.")
+
+    async def deny_callback(self, interaction: discord.Interaction):
+        # In a real system, you might use a Modal to ask for a denial reason
+        await self._update_appeal_status(interaction, "denied", "Appeal denied by administrator.")
+
+
+    @discord.app_commands.command(name="appeals", description="Manage user appeals and disputes")
+    @discord.app_commands.checks.has_permissions(administrator=True)
+    @discord.app_commands.choices(status=[
+        Choice(name="Pending", value="pending"),
+        Choice(name="Approved", value="approved"),
+        Choice(name="Denied", value="denied"),
+        Choice(name="All", value="all"), # Added "All" for listing
+    ])
+    @discord.app_commands.describe(status="Filter appeals by status (defaults to pending)")
+    async def appeals_command(self, interaction: discord.Interaction, status: Optional[Choice[str]] = None):
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.guild:
+            await interaction.followup.send(embed=HUDComponents.create_error_embed("Command Error", "This command can only be used in a server."))
+            return
+
+        target_status = status.value if status else "pending"
+
+        if target_status == "all":
+            guild_appeals = [appeal for appeal in self.mock_appeals if appeal["guild_id"] == interaction.guild.id]
+        else:
+            guild_appeals = [
+                appeal for appeal in self.mock_appeals
+                if appeal["guild_id"] == interaction.guild.id and appeal["status"] == target_status
+            ]
+
+        # Sort by timestamp, newest first for general display, oldest for pending processing
+        sort_reverse = True if target_status != "pending" else False
+        sorted_appeals = sorted(guild_appeals, key=lambda x: x["timestamp"], reverse=sort_reverse)
+
+        if not sorted_appeals:
+            embed = HUDComponents.create_simple_info_embed(
+                title=f"{HUDEmojis.INFO} No Appeals Found",
+                message=f"No appeals found with status '{target_status}' in this server.",
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        # Displaying multiple appeals: For 'pending', we'll show one with buttons. For others, a list.
+        # This approach simplifies not needing complex pagination of interactive views.
+        # A more advanced system might paginate views or require an ID for action.
+
+        if target_status == "pending" and sorted_appeals:
+            # Display the OLDEST pending appeal with action buttons
+            appeal_to_display = sorted_appeals[0]
+
+            user = interaction.guild.get_member(appeal_to_display["user_id"]) or await self.bot.fetch_user(appeal_to_display["user_id"])
+            user_name = f"{user.name}#{user.discriminator}" if user else f"ID: {appeal_to_display['user_id']}"
+
+            embed = HUDComponents.create_minimal_embed(
+                title=f"{HUDEmojis.WARNING} Pending Appeal Review: {appeal_to_display['appeal_id']}",
+                description=(
+                    f"**User:** `{user_name}` (ID: `{appeal_to_display['user_id']}`)\n"
+                    f"**Submitted:** `{appeal_to_display['timestamp'].strftime('%Y-%m-%d %H:%M UTC')}`\n"
+                    f"**Reason:** {appeal_to_display['reason']}\n"
+                    f"**Linked Action ID:** `{appeal_to_display.get('moderation_action_id', 'N/A')}`"
+                )
+            )
+            embed.color = HUDColors.WARNING
+            embed.set_footer(text="Full appeal history, statistics, and user notifications would be part of a complete system.")
+
+            view = AppealActionView(cog=self, appeal_id=appeal_to_display['appeal_id'])
+            # Send the message and store its ID in the appeal mock data if you need to find it later without relying on interaction.message
+            # For this example, interaction.message in the button callback will refer to the message the button is attached to.
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+            if len(sorted_appeals) > 1:
+                 await interaction.followup.send(f"{HUDEmojis.INFO} *{len(sorted_appeals) - 1} more pending appeals. The oldest is shown above. Process them by re-running `/appeals` or `/appeals status:pending`.*", ephemeral=True)
+
+        else: # List approved/denied/all
+            list_title = f"Appeals - {target_status.capitalize()}"
+            if target_status == "all":
+                list_title = "All Appeals"
+
+            embed = HUDComponents.create_minimal_embed(
+                title=f"{HUDEmojis.INFO} {list_title}",
+                description=f"Displaying up to 5 most recent appeals for status: {target_status.capitalize() if target_status != 'all' else 'All'}"
+            )
+
+            # Determine color based on primary filter or default if 'all'
+            if target_status == "approved": embed.color = HUDColors.SUCCESS
+            elif target_status == "denied": embed.color = HUDColors.CRITICAL
+            elif target_status == "pending": embed.color = HUDColors.WARNING # Should be caught by the block above, but for safety
+            else: embed.color = HUDColors.INFO
+
+            for i, appeal_item in enumerate(sorted_appeals[:5]): # Show up to 5
+                user = interaction.guild.get_member(appeal_item["user_id"]) or await self.bot.fetch_user(appeal_item["user_id"])
+                user_name = f"{user.name}#{user.discriminator}" if user else f"ID: {appeal_item['user_id']}"
+
+                action_info = ""
+                if appeal_item["status"] != "pending":
+                    actioned_by_user = None
+                    if appeal_item.get('actioned_by'):
+                        actioned_by_user = interaction.guild.get_member(appeal_item['actioned_by']) or await self.bot.fetch_user(appeal_item['actioned_by'])
+                    actioned_by_name = f"{actioned_by_user.name}#{actioned_by_user.discriminator}" if actioned_by_user else "N/A"
+                    action_info = (
+                        f"\n{HUDEmojis.COMMAND} **Actioned by:** `{actioned_by_name}`"
+                        f"\n{HUDEmojis.BULLET} **Action Reason:** `{appeal_item.get('action_reason', 'N/A')}`"
+                    )
+
+                field_value = (
+                    f"{HUDEmojis.USER} **User:** `{user_name}`\n"
+                    f"{HUDEmojis.INFO} **Reason:** {appeal_item['reason']}\n"
+                    f"{HUDEmojis.TIME} **Submitted:** `{appeal_item['timestamp'].strftime('%Y-%m-%d %H:%M UTC')}`"
+                    f"{action_info}"
+                )
+                status_emoji = HUDEmojis.WARNING if appeal_item['status'] == 'pending' else (HUDEmojis.SUCCESS if appeal_item['status'] == 'approved' else HUDEmojis.CRITICAL)
+                embed.add_field(name=f"{status_emoji} Appeal ID: {appeal_item['appeal_id']} (Status: {appeal_item['status'].upper()})", value=field_value, inline=False)
+
+            if len(sorted_appeals) > 5:
+                 embed.add_field(name="...", value=f"And {len(sorted_appeals)-5} more...", inline=False)
+
+            embed.set_footer(text="Full appeal history, statistics, and user notifications would be part of a complete system.")
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
 async def setup_wildfire_commands(bot):
     """
