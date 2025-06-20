@@ -11,11 +11,14 @@ import time
 from datetime import datetime, timedelta
 import json
 import os
+import logging # Added logging import
 from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
 from config.settings import config
+
+logger = logging.getLogger(__name__) # Added logger instance
 
 
 class TeamTacticalChoicesView(discord.ui.View):
@@ -162,7 +165,7 @@ class TeamTacticalChoicesView(discord.ui.View):
                 await interaction.response.send_message(embed=embed, ephemeral=True)
                 
         except Exception as e:
-            print(f"Error in team choice handling: {e}")
+            logger.error(f"Error in team choice handling for fire {self.fire_id}, user {self.user_id}: {e}", exc_info=True)
             embed = HUDComponents.create_error_embed(
                 "SYSTEM ERROR",
                 "Error processing team deployment - please try again"
@@ -410,7 +413,7 @@ class TacticalChoicesView(discord.ui.View):
                 else:
                     await interaction.response.send_message(embed=embed)
         except Exception as e:
-            print(f"Error in _handle_choice_result: {e}")
+            logger.error(f"Error in _handle_choice_result for user {self.user_id}, resource {resource_name}: {e}", exc_info=True)
             # Show basic tactical update even on error
             user_state = self.singleplayer_game.get_user_state(self.user_id)
             stats = user_state["fire_grid"].get_fire_statistics() if user_state.get("fire_grid") else {}

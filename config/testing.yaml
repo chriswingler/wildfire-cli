@@ -23,3 +23,7 @@ game:
       engines: 1.0 # No variation
       dozers: 1.0
       air_tankers: 1.0
+bot:
+  moderation:
+    alert_channel_id: 987654321098765432 # Replace with actual test channel ID or null
+    exempt_role_ids: [] # Define specific test role IDs if needed for tests
