@@ -13,6 +13,7 @@ import json
 import os
 from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
+from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
 
 
@@ -65,89 +66,98 @@ class TeamTacticalChoicesView(discord.ui.View):
         """Handle the result of a team tactical choice."""
         try:
             if result["success"]:
-                # Show auto-progression if it happened
-                auto = result.get("auto_progression")
-                auto_message = ""
-                if auto:
-                    if auto["budget_earned"] > 0:
-                        auto_message = f"\n\n📈 **TEAM BONUS: +${auto['budget_earned']}k budget!**\nExcellent team coordination!"
-                    else:
-                        auto_message = f"\n\n📉 **FIRE SPREADING!**\nTeam needs more suppression - deploy fast!"
-                
                 # Get current fire status after deployment
                 fire_status = self.game.get_fire_status(self.fire_id)
-                threat_emoji = "🔴" if fire_status['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if fire_status['threat_level'] == "MODERATE" else "🟢"
-                
-                message = f"""🚒 **{resource_name.upper()} DEPLOYED BY TEAM!**
-
-👤 **{interaction.user.display_name}** deployed {resource_name} to **{fire_status['incident_name']}**
-
-🔥 **TEAM FIRE STATUS:**
-• **Size:** {fire_status['fire_size_acres']} acres
-• **Containment:** {fire_status['containment_percent']}%
-• **Threat:** {threat_emoji} {fire_status['threat_level']} - {fire_status['threatened_structures']} structures at risk
-
-👥 **TEAM RESOURCES:**
-• **Ground Crews:** {fire_status['resources_deployed']['hand_crews']} units
-• **Engines:** {fire_status['resources_deployed']['engines']} units
-• **Air Support:** {fire_status['resources_deployed']['air_tankers']} units
-• **Dozers:** {fire_status['resources_deployed']['dozers']} units
-
-💰 **Team Budget:** ${fire_status['team_budget']}k remaining
-{auto_message}
-
-**Team members continue using `/respond` to deploy more resources!**"""
+                auto_progression = result.get("auto_progression")
                 
                 # Check for mission accomplished (100% containment)
                 if fire_status["status"] == "contained":
-                    message = f"""🎉 **MISSION ACCOMPLISHED - TEAM SUCCESS!**
-
-🏆 **{fire_status['incident_name'].upper()} CONTAINED BY TEAM!**
-
-✅ **FINAL TEAM STATUS:**
-• **Size:** {fire_status['fire_size_acres']} acres
-• **Containment:** 100%
-• **Team Budget:** ${fire_status['team_budget']}k remaining
-
-🚒 **OUTSTANDING TEAMWORK!** Your coordinated effort successfully contained the fire!
-
-**Ready for the next challenge? Use `/fire` to start another team response!**"""
-                
+                    embed = HUDComponents.create_action_embed(
+                        "MISSION ACCOMPLISHED - TEAM SUCCESS",
+                        f"🏆 **{fire_status['incident_name'].upper()} CONTAINED BY TEAM!**",
+                        True
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.SUCCESS} ║ FINAL TEAM STATUS",
+                        value=f"```\n"
+                              f"Size:        {fire_status['fire_size_acres']:>6} acres\n"
+                              f"Containment:    100%\n"
+                              f"Team Budget: ${fire_status['team_budget']:>6}k remaining\n"
+                              f"```",
+                        inline=False
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.ARROW_RIGHT} ║ NEXT MISSION",
+                        value=f"{HUDEmojis.CREW} **OUTSTANDING TEAMWORK!** Your coordinated effort successfully contained the fire!\n\n"
+                              f"**Ready for the next challenge? Use `/fire` to start another team response!**",
+                        inline=False
+                    )
+                    
                 elif fire_status["status"] == "critical_failure":
-                    message = f"""💥 **TEAM MISSION FAILED - FIRE OUT OF CONTROL!**
-
-🚨 **{fire_status['incident_name'].upper()} - EVACUATION ORDERED!**
-
-❌ **FINAL TEAM STATUS:**
-• **Size:** {fire_status['fire_size_acres']} acres (OVER 200 ACRES)
-• **Containment:** {fire_status['containment_percent']}%
-• **Team Budget:** ${fire_status['team_budget']}k remaining
-
-⚠️ **FIRE TOO LARGE** - Team coordination wasn't enough to stop the spread!
-
-**Learn and improve! Use `/fire` to try another team response.**"""
+                    embed = HUDComponents.create_action_embed(
+                        "TEAM MISSION FAILED - FIRE OUT OF CONTROL",
+                        f"🚨 **{fire_status['incident_name'].upper()} - EVACUATION ORDERED!**",
+                        False
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.CRITICAL} ║ FINAL TEAM STATUS",
+                        value=f"```\n"
+                              f"Size:        {fire_status['fire_size_acres']:>6} acres (OVER 200 ACRES)\n"
+                              f"Containment: {fire_status['containment_percent']:>6}%\n"
+                              f"Team Budget: ${fire_status['team_budget']:>6}k remaining\n"
+                              f"```",
+                        inline=False
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.INFO} ║ LESSONS LEARNED",
+                        value=f"{HUDEmojis.WARNING} **FIRE TOO LARGE** - Team coordination wasn't enough to stop the spread!\n\n"
+                              f"**Learn and improve! Use `/fire` to try another team response.**",
+                        inline=False
+                    )
+                    
+                else:
+                    # Normal deployment result
+                    embed = HUDComponents.create_team_deployment_embed(
+                        interaction.user.display_name,
+                        resource_name,
+                        fire_status,
+                        auto_progression
+                    )
                 
-                await interaction.response.send_message(message)
+                await interaction.response.send_message(embed=embed)
                 
             else:
                 # Not enough budget or other error
                 if "Insufficient team budget" in result.get("error", ""):
-                    message = f"""💰 **INSUFFICIENT TEAM BUDGET!**
-
-❌ **{resource_name} deployment failed**
-• **Cost:** ${result['cost']}k
-• **Team Budget:** ${result['budget']}k available
-
-**Team needs to coordinate better or wait for budget from fire suppression progress!**
-Use `/firestatus` to check current team resources."""
+                    embed = HUDComponents.create_error_embed(
+                        "INSUFFICIENT TEAM BUDGET",
+                        f"❌ **{resource_name} deployment failed**",
+                        [
+                            f"Cost: ${result['cost']}k",
+                            f"Team Budget: ${result['budget']}k available",
+                            "Team needs to coordinate better or wait for budget from fire suppression progress!",
+                            "Use `/firestatus` to check current team resources."
+                        ]
+                    )
                 else:
-                    message = f"❌ **Deployment failed:** {result.get('error', 'Unknown error')}"
+                    embed = HUDComponents.create_error_embed(
+                        "DEPLOYMENT FAILED",
+                        result.get('error', 'Unknown error occurred during deployment')
+                    )
                 
-                await interaction.response.send_message(message, ephemeral=True)
+                await interaction.response.send_message(embed=embed, ephemeral=True)
                 
         except Exception as e:
             print(f"Error in team choice handling: {e}")
-            await interaction.response.send_message("❌ Error processing team deployment", ephemeral=True)
+            embed = HUDComponents.create_error_embed(
+                "SYSTEM ERROR",
+                "Error processing team deployment - please try again"
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class TacticalChoicesView(discord.ui.View):
@@ -198,43 +208,27 @@ class TacticalChoicesView(discord.ui.View):
         """Handle the result of a tactical choice."""
         try:
             if result["success"]:
-                # Show auto-progression if it happened
-                auto = result.get("auto_progression")
-                auto_message = ""
-                if auto:
-                    if auto["points_earned"] > 0:
-                        auto_message = f"\n\n📈 **PERFORMANCE BONUS: +{auto['points_earned']} pts!**\nGreat containment work!"
-                    else:
-                        auto_message = f"\n\n📉 **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
-                
-                # Generate progression comparison
-                progression_message = self._create_progression_message(result)
-                
                 # Get current fire status after deployment
                 user_state = self.singleplayer_game.get_user_state(self.user_id)
                 stats = user_state["fire_grid"].get_fire_statistics()
                 threats = user_state["fire_grid"].get_threat_assessment()
-                
-                threat_emoji = "🔴" if threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
-                
-                message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
-
-{progression_message}
-
-🔥 **CURRENT FIRE STATUS:**
-• **Size:** {stats['fire_size_acres']} acres
-• **Containment:** {stats['containment_percent']}%
-• **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
-
-💰 **Budget:** ${result['remaining_budget']:,} remaining
-{auto_message}
-
-**Continue fighting the fire:**"""
-                
-                # Check for mission accomplished (100% containment)
-                user_state = self.singleplayer_game.get_user_state(self.user_id)
+                auto_progression = result.get("auto_progression")
                 current_budget = user_state["budget"]
                 
+                # Create fire status data for HUD components
+                fire_status = {
+                    'incident_name': user_state['incident_name'],
+                    'fire_size_acres': stats['fire_size_acres'],
+                    'containment_percent': stats['containment_percent'],
+                    'threat_level': threats['threat_level'],
+                    'threatened_structures': threats['threatened_structures'],
+                    'resources_deployed': user_state['resources_deployed'],
+                    'budget': current_budget,
+                    'operational_period': user_state['operational_period'],
+                    'game_phase': user_state['game_phase']
+                }
+                
+                # Check for mission accomplished (100% containment)
                 if stats['containment_percent'] >= 100:
                     # Mission accomplished! Award budget and start new fire
                     bonus_budget = 8000  # Reward for successful containment
@@ -245,26 +239,40 @@ class TacticalChoicesView(discord.ui.View):
                     user_state = self.singleplayer_game.start_new_scenario(self.user_id)
                     new_stats = user_state["fire_grid"].get_fire_statistics()
                     new_threats = user_state["fire_grid"].get_threat_assessment()
-                    new_threat_emoji = "🔴" if new_threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if new_threats['threat_level'] == "MODERATE" else "🟢"
                     
-                    mission_message = f"""🎉 **MISSION ACCOMPLISHED!** 🎉
-
-🔥 **PREVIOUS FIRE:** Successfully contained at {after['fire_size_acres']} acres
-💰 **PERFORMANCE BONUS:** +${bonus_budget:,} 
-💳 **NEW BUDGET:** ${new_budget:,}
-
-🚨 **NEW WILDFIRE DETECTED!**
-
-**{user_state['incident_name'].upper()}** is spreading!
-
-🔥 **FIRE STATUS:**
-• **Size:** {new_stats['fire_size_acres']} acres
-• **Containment:** {new_stats['containment_percent']}%
-• **Threat:** {new_threat_emoji} {new_threats['threat_level']} - {new_threats['threatened_structures']} structures at risk
-
-💰 **Budget:** ${new_budget:,}
-
-**Ready for your next incident command assignment:**"""
+                    embed = HUDComponents.create_action_embed(
+                        "MISSION ACCOMPLISHED",
+                        f"🎉 **FIRE SUCCESSFULLY CONTAINED!** 🎉",
+                        True
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.SUCCESS} ║ PREVIOUS FIRE CONTAINED",
+                        value=f"```\n"
+                              f"Final Size:     {stats['fire_size_acres']:>6} acres\n"
+                              f"Containment:       100%\n"
+                              f"Bonus Earned:   +${bonus_budget:,}\n"
+                              f"```",
+                        inline=True
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.FIRE} ║ NEW WILDFIRE DETECTED",
+                        value=f"```\n"
+                              f"Incident: {user_state['incident_name']}\n"
+                              f"Size:        {new_stats['fire_size_acres']:>6} acres\n"
+                              f"Containment: {new_stats['containment_percent']:>6}%\n"
+                              f"Threat:      {new_threats['threat_level']}\n"
+                              f"```",
+                        inline=True
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.BUDGET} ║ COMMAND STATUS",
+                        value=f"```\nNew Budget: ${new_budget:,}```\n\n"
+                              f"**Ready for your next incident command assignment!**",
+                        inline=False
+                    )
                     
                     # Create new tactical choices view
                     view = TacticalChoicesView(self.singleplayer_game, self.user_id)
@@ -272,9 +280,9 @@ class TacticalChoicesView(discord.ui.View):
                     # Use defer + followup for clean DM conversation (no reply chains)
                     if interaction.guild is None:
                         await interaction.response.defer()
-                        await interaction.followup.send(mission_message, view=view)
+                        await interaction.followup.send(embed=embed, view=view)
                     else:
-                        await interaction.response.send_message(mission_message, view=view)
+                        await interaction.response.send_message(embed=embed, view=view)
                     return
                 
                 # Check if user can afford any resources before showing choices
@@ -282,35 +290,74 @@ class TacticalChoicesView(discord.ui.View):
                 
                 if current_budget < min_cost:
                     # Game over - can't afford any resources
-                    game_over_message = f"""💥 **GAME OVER - INSUFFICIENT FUNDING!**
-
-🔥 **FINAL SITUATION:**
-• **Fire Size:** {stats['fire_size_acres']} acres
-• **Containment:** {stats['containment_percent']}%
-• **Budget Remaining:** ${current_budget:,}
-
-🎯 **RESULT:** Unable to deploy additional resources. Fire continues to spread unchecked.
-
-**💡 Lesson Learned:** Budget management is critical in incident command!
-
-**🚀 Use `/start` to try again with better resource allocation!**"""
+                    embed = HUDComponents.create_action_embed(
+                        "GAME OVER - INSUFFICIENT FUNDING",
+                        "💥 **Unable to deploy additional resources - Fire continues to spread!**",
+                        False
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.CRITICAL} ║ FINAL SITUATION",
+                        value=f"```\n"
+                              f"Fire Size:   {stats['fire_size_acres']:>6} acres\n"
+                              f"Containment: {stats['containment_percent']:>6}%\n"
+                              f"Budget:      ${current_budget:,}\n"
+                              f"```",
+                        inline=False
+                    )
+                    
+                    embed.add_field(
+                        name=f"{HUDEmojis.INFO} ║ LESSON LEARNED",
+                        value=f"{HUDEmojis.BUDGET} **Budget management is critical in incident command!**\n\n"
+                              f"**🚀 Use `/start` to try again with better resource allocation!**",
+                        inline=False
+                    )
                     
                     # Use defer + followup for clean DM conversation (no reply chains)  
                     if interaction.guild is None:
                         await interaction.response.defer()
-                        await interaction.followup.send(game_over_message)
+                        await interaction.followup.send(embed=embed)
                     else:
-                        await interaction.response.send_message(game_over_message)
+                        await interaction.response.send_message(embed=embed)
                 else:
+                    # Normal deployment result
+                    embed = HUDComponents.create_resource_deployment_embed(
+                        resource_name,
+                        result,
+                        fire_status
+                    )
+                    
+                    # Add auto-progression message if available
+                    if auto_progression:
+                        if auto_progression.get("points_earned", 0) > 0:
+                            auto_message = f"{HUDEmojis.SUCCESS} **PERFORMANCE BONUS: +{auto_progression['points_earned']} pts!**\nGreat containment work!"
+                        else:
+                            auto_message = f"{HUDEmojis.WARNING} **FIRE SPREADING!**\nNeed more suppression - deploy fast!"
+                        
+                        embed.add_field(
+                            name=f"{HUDEmojis.ACTION} ║ AUTO-PROGRESSION",
+                            value=auto_message,
+                            inline=False
+                        )
+                    
+                    # Add progression comparison if available
+                    progression_message = self._create_progression_message(result)
+                    if progression_message:
+                        embed.add_field(
+                            name=f"{HUDEmojis.STATUS} ║ TACTICAL CHANGES",
+                            value=progression_message,
+                            inline=False
+                        )
+                    
                     # Create new tactical choices view
                     view = TacticalChoicesView(self.singleplayer_game, self.user_id)
                     
                     # Use defer + followup for clean DM conversation (no reply chains)
                     if interaction.guild is None:
                         await interaction.response.defer()
-                        await interaction.followup.send(message, view=view)
+                        await interaction.followup.send(embed=embed, view=view)
                     else:
-                        await interaction.response.send_message(message, view=view)
+                        await interaction.response.send_message(embed=embed, view=view)
             else:
                 # Game over - no more budget
                 user_state = self.singleplayer_game.get_user_state(self.user_id)
@@ -319,52 +366,69 @@ class TacticalChoicesView(discord.ui.View):
                 # Set game phase to failed
                 user_state["game_phase"] = "failed"
                 
-                message = f"""💥 **GAME OVER - OUT OF BUDGET!**
-
-🔥 **FINAL FIRE STATUS:**
-• **Size:** {stats['fire_size_acres']} acres
-• **Containment:** {stats['containment_percent']}%
-
-💰 **Budget:** ${result['budget']:,} (Need ${result['cost']:,} for {resource_name})
-
-🎯 **RESULT:** Fire continued to spread without sufficient resources!
-
-**🚀 Ready to try again?**"""
+                embed = HUDComponents.create_action_embed(
+                    "GAME OVER - OUT OF BUDGET",
+                    "💥 **Insufficient funds for resource deployment!**",
+                    False
+                )
+                
+                embed.add_field(
+                    name=f"{HUDEmojis.CRITICAL} ║ FINAL FIRE STATUS",
+                    value=f"```\n"
+                          f"Fire Size:   {stats['fire_size_acres']:>6} acres\n"
+                          f"Containment: {stats['containment_percent']:>6}%\n"
+                          f"Budget:      ${result['budget']:,}\n"
+                          f"Need:        ${result['cost']:,} for {resource_name}\n"
+                          f"```",
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name=f"{HUDEmojis.ARROW_RIGHT} ║ NEXT STEPS",
+                    value=f"{HUDEmojis.FIRE} **Fire continued to spread without sufficient resources!**\n\n"
+                          f"**🚀 Ready to try again? Use `/start` for a new scenario!**",
+                    inline=False
+                )
                 
                 # Use defer + followup for clean DM conversation (no reply chains)
                 if interaction.guild is None:
                     await interaction.response.defer()
-                    await interaction.followup.send(message)
+                    await interaction.followup.send(embed=embed)
                 else:
-                    await interaction.response.send_message(message)
+                    await interaction.response.send_message(embed=embed)
         except Exception as e:
             print(f"Error in _handle_choice_result: {e}")
             # Show basic tactical update even on error
             user_state = self.singleplayer_game.get_user_state(self.user_id)
-            stats = user_state["fire_grid"].get_fire_statistics()
-            threats = user_state["fire_grid"].get_threat_assessment()
+            stats = user_state["fire_grid"].get_fire_statistics() if user_state.get("fire_grid") else {}
+            threats = user_state["fire_grid"].get_threat_assessment() if user_state.get("fire_grid") else {}
             
-            threat_emoji = "🔴" if threats['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
+            fire_status = {
+                'incident_name': user_state.get('incident_name', 'Unknown Incident'),
+                'fire_size_acres': stats.get('fire_size_acres', 0),
+                'containment_percent': stats.get('containment_percent', 0),
+                'threat_level': threats.get('threat_level', 'UNKNOWN'),
+                'threatened_structures': threats.get('threatened_structures', 0),
+                'resources_deployed': user_state.get('resources_deployed', {}),
+                'budget': user_state.get('budget', 0),
+                'operational_period': user_state.get('operational_period', 1),
+                'game_phase': user_state.get('game_phase', 'active')
+            }
             
-            message = f"""🚒 **{resource_name.upper()} DEPLOYED!**
-
-🔥 **FIRE UPDATE:**
-• **Size:** {stats['fire_size_acres']} acres
-• **Containment:** {stats['containment_percent']}%
-• **Threat:** {threat_emoji} {threats['threat_level']}
-
-💰 **Budget:** ${user_state.get('budget', 20000):,} remaining
-
-**Continue fighting the fire:**"""
+            embed = HUDComponents.create_resource_deployment_embed(
+                resource_name,
+                {"success": True, "remaining_budget": fire_status['budget']},
+                fire_status
+            )
             
             view = TacticalChoicesView(self.singleplayer_game, self.user_id)
             
             # Use defer + followup for clean DM conversation (no reply chains)
             if interaction.guild is None:
                 await interaction.response.defer()
-                await interaction.followup.send(message, view=view)
+                await interaction.followup.send(embed=embed, view=view)
             else:
-                await interaction.response.send_message(message, view=view)
+                await interaction.response.send_message(embed=embed, view=view)
     
     def _create_progression_message(self, result):
         """Create a message showing what changed from the previous action."""
@@ -1081,49 +1145,52 @@ class WildfireCommands(commands.Cog):
         if user_state["game_phase"] == "active":
             # Already have an active incident
             stats = self.singleplayer_game.get_current_status(interaction.user.id)
-            embed = discord.Embed(
-                title="🔥 INCIDENT ALREADY ACTIVE",
-                description=f"You are currently managing **{user_state['incident_name']}**",
-                color=0xFF6B35
+            
+            embed = HUDComponents.create_status_embed(
+                "INCIDENT ALREADY ACTIVE",
+                f"You are currently managing **{user_state['incident_name']}**",
+                "warning"
             )
             
             embed.add_field(
-                name="📊 Current Status",
-                value=f"**Fire Size:** {stats['fire_size_acres']} acres\n"
-                      f"**Containment:** {stats['containment_percent']}%\n"
-                      f"**Operational Period:** {stats['operational_period']}",
+                name=f"{HUDEmojis.STATUS} ║ CURRENT STATUS",
+                value=f"```\n"
+                      f"Fire Size:   {stats['fire_size_acres']:>6} acres\n"
+                      f"Containment: {stats['containment_percent']:>6}%\n"
+                      f"Period:      {stats['operational_period']:>6}\n"
+                      f"```",
                 inline=False
             )
             
             embed.add_field(
-                name="⚡ Available Actions",
-                value="• `/respond` - Deploy additional resources\n"
-                      "• `/advance` - Progress to next operational period\n"
-                      "• `/firestatus` - Get situation reports\n"
-                      "• `/stop` - End current scenario",
+                name=f"{HUDEmojis.ARROW_RIGHT} ║ AVAILABLE ACTIONS",
+                value=f"{HUDEmojis.BULLET} `/respond` - Deploy additional resources\n"
+                      f"{HUDEmojis.BULLET} `/advance` - Progress to next operational period\n"
+                      f"{HUDEmojis.BULLET} `/firestatus` - Get situation reports\n"
+                      f"{HUDEmojis.BULLET} `/stop` - End current scenario",
                 inline=False
             )
             
             await interaction.response.send_message(embed=embed)
         else:
             # No active incident - redirect to /start
-            embed = discord.Embed(
-                title="🎯 START YOUR WILDFIRE TRAINING",
-                description="For the full Incident Commander experience, use **`/start`** to begin a complete wildfire scenario.",
-                color=0xFF4500
+            embed = HUDComponents.create_status_embed(
+                "START YOUR WILDFIRE TRAINING",
+                "For the full Incident Commander experience, use **`/start`** to begin a complete wildfire scenario.",
+                "info"
             )
             
             embed.add_field(
-                name="🌟 Enhanced Experience",
-                value="• **Realistic fire simulation** with weather and terrain\n"
-                      "• **Authentic ICS reports** and operational briefings\n"
-                      "• **Progressive difficulty** with tactical challenges\n"
-                      "• **Complete scenario arc** from dispatch to after-action",
+                name=f"{HUDEmojis.SUCCESS} ║ ENHANCED EXPERIENCE",
+                value=f"{HUDEmojis.BULLET} **Realistic fire simulation** with weather and terrain\n"
+                      f"{HUDEmojis.BULLET} **Authentic ICS reports** and operational briefings\n"
+                      f"{HUDEmojis.BULLET} **Progressive difficulty** with tactical challenges\n"
+                      f"{HUDEmojis.BULLET} **Complete scenario arc** from dispatch to after-action",
                 inline=False
             )
             
             embed.add_field(
-                name="🚀 Get Started",
+                name=f"{HUDEmojis.ARROW_RIGHT} ║ GET STARTED",
                 value="Use `/start` to begin your Incident Commander training!",
                 inline=False
             )
@@ -1341,19 +1408,62 @@ class WildfireCommands(commands.Cog):
         user_state = self.singleplayer_game.get_user_state(interaction.user.id)
         
         if user_state["game_phase"] == "ready":
+            embed = HUDComponents.create_status_embed(
+                "READY TO RESPOND",
+                "No active wildfire incident to report.",
+                "info"
+            )
+            
+            embed.add_field(
+                name=f"{HUDEmojis.ARROW_RIGHT} ║ GET STARTED",
+                value=f"{HUDEmojis.FIRE} Use `/start` to begin your next Incident Commander scenario!",
+                inline=False
+            )
+            
             # Use defer + followup for clean DM conversation (no reply chains)
             await interaction.response.defer()
-            await interaction.followup.send(
-                "🔥 **Ready to Respond!**\n\nNo active wildfire incident to report. Use `/start` to begin your next Incident Commander scenario!"
-            )
+            await interaction.followup.send(embed=embed)
             return
             
-        # Generate situation update report
-        status_report = self.singleplayer_game.generate_incident_report(
-            interaction.user.id, "status"
-        )
-        
-        await interaction.response.send_message(f"```{status_report}```")
+        # Create HUD status display from fire data
+        if user_state.get("fire_grid"):
+            stats = user_state["fire_grid"].get_fire_statistics()
+            threats = user_state["fire_grid"].get_threat_assessment()
+            
+            fire_status = {
+                'incident_name': user_state['incident_name'],
+                'fire_size_acres': stats['fire_size_acres'],
+                'containment_percent': stats['containment_percent'],
+                'threat_level': threats['threat_level'],
+                'threatened_structures': threats['threatened_structures'],
+                'resources_deployed': user_state['resources_deployed'],
+                'budget': user_state.get('budget', 20000),
+                'operational_period': user_state['operational_period'],
+                'game_phase': user_state['game_phase']
+            }
+            
+            embed = HUDComponents.create_incident_embed(user_state['incident_name'], fire_status)
+            
+            # Add weather information
+            weather = stats['weather']
+            embed.add_field(
+                name=f"{HUDEmojis.INFO} ║ WEATHER CONDITIONS",
+                value=f"```\n"
+                      f"Wind:        {weather['wind_direction']} {weather['wind_speed']:>2} mph\n"
+                      f"Temperature: {weather['temperature']:>6}°F\n"
+                      f"Humidity:    {weather.get('humidity', 'N/A'):>6}%\n"
+                      f"```",
+                inline=True
+            )
+            
+            await interaction.response.send_message(embed=embed)
+        else:
+            # Fallback for missing fire grid
+            embed = HUDComponents.create_error_embed(
+                "STATUS UNAVAILABLE",
+                "Fire simulation data not available"
+            )
+            await interaction.response.send_message(embed=embed)
         
     async def _handle_multiplayer_status(self, interaction: discord.Interaction):
         """Handle status display in Guild (multiplayer mode)."""
@@ -1365,49 +1475,103 @@ class WildfireCommands(commands.Cog):
                 break
         
         if not active_fire:
-            await interaction.response.send_message(
-                "📍 No active fires in this channel. Use `/fire` to create an incident.", ephemeral=True
+            embed = HUDComponents.create_simple_info_embed(
+                "NO ACTIVE FIRES",
+                "No active fires in this channel.",
+                [{"name": f"{HUDEmojis.ARROW_RIGHT} ║ GET STARTED", 
+                  "value": f"{HUDEmojis.FIRE} Use `/fire` to create an incident.", 
+                  "inline": False}]
             )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
             
         # Get detailed fire status
         fire_status = self.game.get_fire_status(active_fire["id"])
         if not fire_status:
-            await interaction.response.send_message("❌ Fire status unavailable", ephemeral=True)
+            embed = HUDComponents.create_error_embed(
+                "STATUS UNAVAILABLE",
+                "Fire status data is currently unavailable"
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
             
-        threat_emoji = "🔴" if fire_status['threat_level'] in ["HIGH", "EXTREME"] else "🟡" if fire_status['threat_level'] == "MODERATE" else "🟢"
+        # Create team status embed
+        embed = HUDComponents.create_status_embed(
+            f"TEAM INCIDENT STATUS: {fire_status['incident_name'].upper()}",
+            "Current team incident status and resource deployment",
+            "info"
+        )
+        
+        # Fire status section
+        threat_level = fire_status['threat_level']
+        if threat_level in ['HIGH', 'EXTREME']:
+            threat_emoji = HUDEmojis.CRITICAL
+        elif threat_level == 'MODERATE':
+            threat_emoji = HUDEmojis.WARNING
+        else:
+            threat_emoji = HUDEmojis.SUCCESS
+            
+        embed.add_field(
+            name=f"{HUDEmojis.FIRE} ║ CURRENT FIRE STATUS",
+            value=f"```\n"
+                  f"Size:        {fire_status['fire_size_acres']:>6} acres\n"
+                  f"Containment: {fire_status['containment_percent']:>6}%\n"
+                  f"Threat:      {threat_level}\n"
+                  f"Structures:  {fire_status['threatened_structures']:>6} at risk\n"
+                  f"```",
+            inline=True
+        )
+        
+        # Weather conditions
+        weather = fire_status['weather']
+        embed.add_field(
+            name=f"{HUDEmojis.INFO} ║ WEATHER CONDITIONS",
+            value=f"```\n"
+                  f"Wind:        {weather['wind_direction']} {weather['wind_speed']:>2} mph\n"
+                  f"Humidity:    {weather['humidity']:>6}%\n"
+                  f"Temperature: {weather['temperature']:>6}°F\n"
+                  f"```",
+            inline=True
+        )
+        
+        # Team coordination
         responder_names = [r["name"] for r in fire_status["responders"]]
+        team_list = ', '.join(responder_names) if responder_names else 'None assigned'
+        if len(team_list) > 50:  # Truncate if too long
+            team_list = team_list[:47] + "..."
+            
+        embed.add_field(
+            name=f"{HUDEmojis.COMMAND} ║ TEAM COORDINATION",
+            value=f"```\n"
+                  f"Responders:  {len(responder_names):>6} members\n"
+                  f"Team Budget: ${fire_status['team_budget']:>6}k\n"
+                  f"```\n"
+                  f"**Team:** {team_list}",
+            inline=False
+        )
         
-        message = f"""🔥 **TEAM INCIDENT STATUS REPORT**
-
-📋 **{fire_status['incident_name'].upper()}**
-
-🔥 **CURRENT FIRE STATUS:**
-• **Size:** {fire_status['fire_size_acres']} acres
-• **Containment:** {fire_status['containment_percent']}%
-• **Threat:** {threat_emoji} {fire_status['threat_level']} - {fire_status['threatened_structures']} structures at risk
-
-🌡️ **WEATHER CONDITIONS:**
-• **Wind:** {fire_status['weather']['wind_speed']} mph {fire_status['weather']['wind_direction']}
-• **Humidity:** {fire_status['weather']['humidity']}%
-• **Temperature:** {fire_status['weather']['temperature']}°F
-
-👥 **TEAM COORDINATION:**
-• **Responders:** {len(responder_names)} team members
-• **Team:** {', '.join(responder_names) if responder_names else 'None assigned'}
-
-🚒 **TEAM RESOURCES DEPLOYED:**
-• **Ground Crews:** {fire_status['resources_deployed']['hand_crews']} units
-• **Engines:** {fire_status['resources_deployed']['engines']} units
-• **Air Support:** {fire_status['resources_deployed']['air_tankers']} units
-• **Dozers:** {fire_status['resources_deployed']['dozers']} units
-
-💰 **Team Budget:** ${fire_status['team_budget']}k remaining
-
-**Team members use `/respond` to deploy additional resources!**"""
+        # Team resources deployed
+        resources = fire_status['resources_deployed']
+        embed.add_field(
+            name=f"{HUDEmojis.CREW} ║ TEAM RESOURCES DEPLOYED",
+            value=f"```\n"
+                  f"Ground Crews: {resources['hand_crews']:>2} units\n"
+                  f"Engines:      {resources['engines']:>2} units\n"
+                  f"Air Support:  {resources['air_tankers']:>2} units\n"
+                  f"Dozers:       {resources['dozers']:>2} units\n"
+                  f"```",
+            inline=False
+        )
         
-        await interaction.response.send_message(message)
+        # Next actions
+        embed.add_field(
+            name=f"{HUDEmojis.ARROW_RIGHT} ║ TEAM ACTIONS",
+            value=f"{HUDEmojis.BULLET} Team members use `/respond` to deploy additional resources!\n"
+                  f"{HUDEmojis.BULLET} Continue coordinating until fire is contained",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed)
         
         
     def _create_guild_status_embed(self):
@@ -1447,7 +1611,12 @@ class WildfireCommands(commands.Cog):
             return
             
         self.singleplayer_game.clear_user_state(interaction.user.id)
-        await interaction.response.send_message("✅ Personal game state cleared")
+        embed = HUDComponents.create_action_embed(
+            "PERSONAL GAME STATE CLEARED",
+            "All personal game data has been reset",
+            True
+        )
+        await interaction.response.send_message(embed=embed)
         
     @discord.app_commands.command(name="start", description="🚀 Begin new wildfire incident command scenario (DM only)")
     async def start_command(self, interaction: discord.Interaction):
@@ -1466,13 +1635,13 @@ class WildfireCommands(commands.Cog):
             interaction.user.id, "initial"
         )
         
-        # Immediate dispatch - drop straight into the fire with readable text
-        dispatch_message = await self._create_dispatch_message(interaction.user.id)
+        # Immediate dispatch - drop straight into the fire with HUD embed
+        dispatch_embed = await self._create_dispatch_message(interaction.user.id)
         view = TacticalChoicesView(self.singleplayer_game, interaction.user.id)
         
         # Use defer + followup for clean DM conversation (no reply chains)
         await interaction.response.defer()
-        await interaction.followup.send(dispatch_message, view=view)
+        await interaction.followup.send(embed=dispatch_embed, view=view)
         
     @discord.app_commands.command(name="debugplayer2", description="🧪 [DEBUG] Simulate Player 2 for multiplayer testing")
     async def debug_player2_command(self, interaction: discord.Interaction):
@@ -1725,67 +1894,163 @@ class WildfireCommands(commands.Cog):
         )
         
         if "No active incident" in report:
+            embed = HUDComponents.create_simple_info_embed(
+                "READY FOR REPORTS",
+                "No active incident to report on.",
+                [{"name": f"{HUDEmojis.ARROW_RIGHT} ║ GET STARTED", 
+                  "value": f"{HUDEmojis.FIRE} Use `/start` to begin your wildfire command scenario!", 
+                  "inline": False}]
+            )
             # Use defer + followup for clean DM conversation (no reply chains)
             await interaction.response.defer()
-            await interaction.followup.send(
-                "🔥 **Ready for Reports!**\n\nNo active incident to report on. Use `/start` to begin your wildfire command scenario!"
-            )
+            await interaction.followup.send(embed=embed)
             return
             
+        # Create HUD-framed report display
+        embed = HUDComponents.create_status_embed(
+            f"INCIDENT REPORT: {report_type.upper()}",
+            f"Official ICS incident documentation",
+            "info"
+        )
+        
+        # Split long reports if needed (Discord has field value limits)
+        if len(report) > 1000:
+            # Split into multiple fields
+            lines = report.split('\n')
+            current_section = ""
+            section_lines = []
+            
+            for line in lines:
+                if line.startswith('**') and line.endswith('**') and current_section:
+                    # New section header, add previous section
+                    embed.add_field(
+                        name=f"{HUDEmojis.INFO} ║ {current_section}",
+                        value=f"```\n{chr(10).join(section_lines)}\n```",
+                        inline=False
+                    )
+                    section_lines = []
+                    current_section = line.strip('*').upper()
+                elif line.startswith('**') and line.endswith('**'):
+                    current_section = line.strip('*').upper()
+                else:
+                    section_lines.append(line)
+            
+            # Add final section
+            if current_section and section_lines:
+                embed.add_field(
+                    name=f"{HUDEmojis.INFO} ║ {current_section}",
+                    value=f"```\n{chr(10).join(section_lines)}\n```",
+                    inline=False
+                )
+        else:
+            # Short report, display in single field
+            embed.add_field(
+                name=f"{HUDEmojis.INFO} ║ FULL REPORT",
+                value=f"```\n{report}\n```",
+                inline=False
+            )
+        
         # Use defer + followup for clean DM conversation (no reply chains)
         await interaction.response.defer()
-        await interaction.followup.send(f"```{report}```")
+        await interaction.followup.send(embed=embed)
         
-    async def _create_dispatch_message(self, user_id) -> str:
-        """Create readable text message for initial dispatch."""
+    async def _create_dispatch_message(self, user_id) -> discord.Embed:
+        """Create HUD-style embed for initial dispatch."""
         user_state = self.singleplayer_game.get_user_state(user_id)
         
         if not user_state["fire_grid"]:
-            return "❌ **ERROR** - No active incident"
+            return HUDComponents.create_error_embed(
+                "ERROR - NO ACTIVE INCIDENT",
+                "No active fire incident found"
+            )
             
         # Get fire statistics and threat data
         stats = user_state["fire_grid"].get_fire_statistics()
         threats = user_state["fire_grid"].get_threat_assessment()
         incident_name = user_state["incident_name"]
         
-        # Determine threat level styling
-        threat_emoji = "🔴" if threats['threat_level'] == "HIGH" else "🟡" if threats['threat_level'] == "MODERATE" else "🟢"
+        # Create fire status data for HUD
+        fire_status = {
+            'incident_name': incident_name,
+            'fire_size_acres': stats['fire_size_acres'],
+            'containment_percent': stats['containment_percent'],
+            'threat_level': threats['threat_level'],
+            'threatened_structures': threats['threatened_structures'],
+            'resources_deployed': user_state['resources_deployed'],
+            'budget': user_state.get('budget', 20000),
+            'operational_period': user_state['operational_period'],
+            'game_phase': user_state['game_phase']
+        }
         
-        # Create clear, scannable message
-        message = f"""🚨 **WILDFIRE EMERGENCY** 🚨
-
-**{incident_name.upper()}** is spreading!
-
-
-🔥 **FIRE STATUS:**
-• **Size:** {stats['fire_size_acres']} acres
-• **Containment:** {stats['containment_percent']}%
-• **Threat:** {threat_emoji} {threats['threat_level']} - {threats['threatened_structures']} structures at risk
-• **Weather:** {stats['weather']['wind_direction']} {stats['weather']['wind_speed']} mph, {stats['weather']['temperature']}°F
-
-⚡ **STRATEGIC CONDITIONS:**
-• **Air Ops:** {"🟢 FAVORABLE" if stats['weather']['wind_speed'] <= 15 else "🟡 MARGINAL" if stats['weather']['wind_speed'] <= 20 else "🔴 GROUNDED"} (Wind: {stats['weather']['wind_speed']} mph)
-• **Fire Size:** {"🟢 SMALL" if stats['fire_size_acres'] <= 30 else "🟡 MEDIUM" if stats['fire_size_acres'] <= 60 else "🔴 LARGE"} ({stats['fire_size_acres']} acres)
-• **Urgency:** {"🟢 MANAGEABLE" if stats['fire_size_acres'] <= 50 else "🟡 CRITICAL" if stats['fire_size_acres'] <= 100 else "🔴 EMERGENCY"}
-
-
-💰 **Budget:** ${user_state.get('budget', 20000):,}
-*Good containment earns more funding!*
-
-
-**TACTICAL OPTIONS:**
-
-🔵 **1 🚒 Ground Crews** ($1,800) - +50% on small fires ≤30 acres
-🔴 **2 🚁 Air Support** ($12,000) - +80% on large fires, ⚠️ grounded if winds >20mph  
-⚫ **3 🚛 Engine Company** ($3,200) - +40% on medium fires, reliable
-🟢 **4 🚜 Dozer** ($4,600) - +60% for firebreaks, prevention specialist
-
-
-🎯 **GOAL:** Contain fire before it reaches 200 acres!
-
-**Click tactical buttons OR type 1, 2, 3, or 4 to deploy!**"""
-
-        return message
+        embed = HUDComponents.create_status_embed(
+            f"WILDFIRE EMERGENCY: {incident_name.upper()}",
+            f"🚨 **IMMEDIATE RESPONSE REQUIRED** 🚨\n**{incident_name.upper()}** is spreading rapidly!",
+            "critical"
+        )
+        
+        # Fire status section
+        embed.add_field(
+            name=f"{HUDEmojis.FIRE} ║ FIRE STATUS",
+            value=f"```\n"
+                  f"Size:        {stats['fire_size_acres']:>6} acres\n"
+                  f"Containment: {stats['containment_percent']:>6}%\n"
+                  f"Structures:  {threats['threatened_structures']:>6} at risk\n"
+                  f"Threat:      {threats['threat_level']}\n"
+                  f"```",
+            inline=True
+        )
+        
+        # Weather conditions
+        weather = stats['weather']
+        air_ops_status = "FAVORABLE" if weather['wind_speed'] <= 15 else "MARGINAL" if weather['wind_speed'] <= 20 else "GROUNDED"
+        air_ops_emoji = HUDEmojis.SUCCESS if weather['wind_speed'] <= 15 else HUDEmojis.WARNING if weather['wind_speed'] <= 20 else HUDEmojis.CRITICAL
+        
+        embed.add_field(
+            name=f"{HUDEmojis.INFO} ║ WEATHER CONDITIONS",
+            value=f"```\n"
+                  f"Wind:        {weather['wind_direction']} {weather['wind_speed']:>2} mph\n"
+                  f"Temp:        {weather['temperature']:>6}°F\n"
+                  f"Air Ops:     {air_ops_status}\n"
+                  f"```",
+            inline=True
+        )
+        
+        # Strategic assessment
+        fire_size_cat = "SMALL" if stats['fire_size_acres'] <= 30 else "MEDIUM" if stats['fire_size_acres'] <= 60 else "LARGE"
+        urgency = "MANAGEABLE" if stats['fire_size_acres'] <= 50 else "CRITICAL" if stats['fire_size_acres'] <= 100 else "EMERGENCY"
+        
+        embed.add_field(
+            name=f"{HUDEmojis.ACTION} ║ STRATEGIC ASSESSMENT",
+            value=f"```\n"
+                  f"Fire Size:   {fire_size_cat}\n"
+                  f"Urgency:     {urgency}\n"
+                  f"Budget:      ${user_state.get('budget', 20000):,}\n"
+                  f"```",
+            inline=False
+        )
+        
+        # Tactical options
+        embed.add_field(
+            name=f"{HUDEmojis.COMMAND} ║ TACTICAL OPTIONS",
+            value=f"```\n"
+                  f"1 🚒 Ground Crews   $1,800  +50% small fires ≤30 acres\n"
+                  f"2 🚁 Air Support   $12,000  +80% large fires (winds ≤20mph)\n"
+                  f"3 🚛 Engine Company $3,200  +40% medium fires, reliable\n"
+                  f"4 🚜 Dozer          $4,600  +60% firebreaks, prevention\n"
+                  f"```",
+            inline=False
+        )
+        
+        # Mission objective
+        embed.add_field(
+            name=f"{HUDEmojis.ARROW_RIGHT} ║ MISSION OBJECTIVE",
+            value=f"{HUDEmojis.FIRE} **CONTAIN FIRE BEFORE IT REACHES 200 ACRES!**\n\n"
+                  f"*Good containment earns additional funding!*\n\n"
+                  f"**Click tactical buttons to deploy resources!**",
+            inline=False
+        )
+        
+        return embed
     
     async def _create_operational_message(self, user_id) -> str:
         """Create readable text message for operational briefing."""

@@ -15,6 +15,7 @@ import time
 import random
 import aiosqlite
 from utilities import CooldownManager
+from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 
 
 class WildfireGame:
@@ -311,31 +312,37 @@ async def setup(bot):
         """Create new wildfire incident."""
         fire_data = await cog.game.create_fire(interaction.guild.id, interaction.channel.id)
         
-        embed = discord.Embed(
-            title="🔥 WILDFIRE INCIDENT REPORTED",
-            description=f"New **{fire_data['type']} fire** detected requiring immediate response",
-            color=0xFF4500
+        # Determine status type based on threat level
+        threat_level = fire_data['threat_level'].upper()
+        status_type = "critical" if threat_level in ["HIGH", "EXTREME"] else "warning" if threat_level == "MODERATE" else "info"
+        
+        embed = HUDComponents.create_status_embed(
+            "WILDFIRE INCIDENT REPORTED",
+            f"New **{fire_data['type']} fire** detected requiring immediate response",
+            status_type
         )
         
         embed.add_field(
-            name="📍 Incident Details",
-            value=f"**Fire ID:** `{fire_data['id']}`\n"
-                  f"**Type:** {fire_data['type'].title()} Fire\n"
-                  f"**Size:** {fire_data['size_acres']} acres\n"
-                  f"**Threat Level:** {fire_data['threat_level'].upper()}\n"
-                  f"**Containment:** {fire_data['containment']}%",
+            name=f"{HUDEmojis.FIRE} ║ INCIDENT DETAILS",
+            value=f"```\n"
+                  f"Fire ID:     {fire_data['id']}\n"
+                  f"Type:        {fire_data['type'].title()} Fire\n"
+                  f"Size:        {fire_data['size_acres']:>6} acres\n"
+                  f"Threat:      {threat_level}\n"
+                  f"Containment: {fire_data['containment']:>6}%\n"
+                  f"```",
             inline=False
         )
         
         embed.add_field(
-            name="🚒 Response Commands",
-            value="• `/respond` - Join the firefighting response team\n"
-                  "• `/firestatus` - Check status of all active incidents\n"
-                  "• `/myrole` - View your current assignments",
+            name=f"{HUDEmojis.COMMAND} ║ RESPONSE COMMANDS",
+            value=f"{HUDEmojis.BULLET} `/respond` - Join the firefighting response team\n"
+                  f"{HUDEmojis.BULLET} `/firestatus` - Check status of all active incidents\n"
+                  f"{HUDEmojis.BULLET} `/myrole` - View your current assignments",
             inline=False
         )
         
-        embed.set_footer(text="Incident Command System • Educational Wildfire Simulation")
+        embed.set_footer(text="ICS • Wildfire Command HUD • Educational Simulation")
         await interaction.response.send_message(embed=embed)
     
     @bot.tree.command(name="respond", description="🚒 Respond to active wildfire incident")
@@ -344,10 +351,12 @@ async def setup(bot):
         active_fires = await cog.game.get_active_fires(interaction.guild.id)
         
         if not active_fires:
-            await interaction.response.send_message(
-                "❌ No active fires requiring response. Use `/fire` to create an incident.",
-                ephemeral=True
+            embed = HUDComponents.create_error_embed(
+                "NO ACTIVE FIRES",
+                "No active fires requiring response.",
+                ["Use `/fire` to create an incident."]
             )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
             
         # Assign to first active fire
@@ -359,24 +368,29 @@ async def setup(bot):
         )
         
         if success:
-            embed = discord.Embed(
-                title="✅ RESPONDER ASSIGNED",
-                description=f"{interaction.user.display_name} deployed to **{fire['id']}**",
-                color=0x00AA00
+            embed = HUDComponents.create_action_embed(
+                "RESPONDER ASSIGNED",
+                f"{interaction.user.display_name} deployed to **{fire['id']}**",
+                True
             )
+            
             embed.add_field(
-                name="Assignment Details",
-                value=f"**Role:** Firefighter\n"
-                      f"**Fire Type:** {fire['type'].title()}\n"
-                      f"**Current Team Size:** {fire['responder_count'] + 1}",
+                name=f"{HUDEmojis.CREW} ║ ASSIGNMENT DETAILS",
+                value=f"```\n"
+                      f"Role:       Firefighter\n"
+                      f"Fire Type:  {fire['type'].title()}\n"
+                      f"Team Size:  {fire['responder_count'] + 1:>6}\n"
+                      f"```",
                 inline=False
             )
+            
             await interaction.response.send_message(embed=embed)
         else:
-            await interaction.response.send_message(
-                "❌ Unable to assign to incident. Try again.",
-                ephemeral=True
+            embed = HUDComponents.create_error_embed(
+                "ASSIGNMENT FAILED",
+                "Unable to assign to incident - please try again."
             )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @bot.tree.command(name="firestatus", description="📊 Check status of active fires")
     async def firestatus_command(interaction: discord.Interaction):
@@ -384,32 +398,48 @@ async def setup(bot):
         active_fires = await cog.game.get_active_fires(interaction.guild.id)
         
         if not active_fires:
-            await interaction.response.send_message(
-                "📍 No active fires currently. All incidents contained or controlled.",
-                ephemeral=True
+            embed = HUDComponents.create_simple_info_embed(
+                "NO ACTIVE FIRES",
+                "All incidents contained or controlled.",
+                [{"name": f"{HUDEmojis.SUCCESS} ║ OPERATIONAL STATUS", 
+                  "value": "No wildfire incidents currently requiring response.", 
+                  "inline": False}]
             )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
             
-        embed = discord.Embed(
-            title="🔥 ACTIVE INCIDENTS STATUS BOARD",
-            description="Current wildfire incidents requiring response",
-            color=0xFF6B35
+        embed = HUDComponents.create_status_embed(
+            "ACTIVE INCIDENTS STATUS BOARD",
+            "Current wildfire incidents requiring response",
+            "warning"
         )
         
         for fire in active_fires[:6]:
-            status_color = "🟢" if fire["containment"] > 75 else "🟡" if fire["containment"] > 25 else "🔴"
+            # Determine status and emoji based on containment
+            if fire["containment"] > 75:
+                status_emoji = HUDEmojis.SUCCESS
+                status_text = "CONTROLLED"
+            elif fire["containment"] > 25:
+                status_emoji = HUDEmojis.WARNING
+                status_text = "ACTIVE"
+            else:
+                status_emoji = HUDEmojis.CRITICAL
+                status_text = "CRITICAL"
             
             embed.add_field(
-                name=f"{status_color} {fire['id'].upper()}",
-                value=f"**Type:** {fire['type'].title()}\n"
-                      f"**Size:** {fire['size_acres']} acres\n"
-                      f"**Containment:** {fire['containment']}%\n"
-                      f"**Responders:** {fire['responder_count']}\n"
-                      f"**Threat:** {fire['threat_level'].upper()}",
+                name=f"{status_emoji} ║ {fire['id'].upper()}",
+                value=f"```\n"
+                      f"Type:        {fire['type'].title()}\n"
+                      f"Size:        {fire['size_acres']:>6} acres\n"
+                      f"Containment: {fire['containment']:>6}%\n"
+                      f"Responders:  {fire['responder_count']:>6}\n"
+                      f"Threat:      {fire['threat_level'].upper()}\n"
+                      f"Status:      {status_text}\n"
+                      f"```",
                 inline=True
             )
             
-        embed.set_footer(text=f"Incident Command System • {len(active_fires)} active incidents")
+        embed.set_footer(text=f"ICS • Wildfire Command HUD • {len(active_fires)} active incidents")
         await interaction.response.send_message(embed=embed)
     
     logging.info("🔥 Wildfire commands cog loaded")
