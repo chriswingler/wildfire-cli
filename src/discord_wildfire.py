@@ -120,11 +120,20 @@ class TeamTacticalChoicesView(discord.ui.View):
                     )
                     
                 else:
-                    # Normal deployment result
+                    # Normal deployment result - get fire grid from game
+                    fire_grid = None
+                    try:
+                        if hasattr(self.game, 'active_fires') and self.fire_id in self.game.active_fires:
+                            fire_data = self.game.active_fires[self.fire_id]
+                            fire_grid = fire_data.get('fire_grid')
+                    except:
+                        pass
+                    
                     embed = HUDComponents.create_team_deployment_embed(
                         interaction.user.display_name,
                         resource_name,
                         fire_status,
+                        fire_grid,
                         auto_progression
                     )
                 
@@ -320,11 +329,14 @@ class TacticalChoicesView(discord.ui.View):
                     else:
                         await interaction.response.send_message(embed=embed)
                 else:
-                    # Normal deployment result
+                    # Normal deployment result - get fire grid
+                    fire_grid = user_state.get("fire_grid")
+                    
                     embed = HUDComponents.create_resource_deployment_embed(
                         resource_name,
                         result,
-                        fire_status
+                        fire_status,
+                        fire_grid
                     )
                     
                     # Add auto-progression message if available
@@ -1442,19 +1454,9 @@ class WildfireCommands(commands.Cog):
                 'game_phase': user_state['game_phase']
             }
             
-            embed = HUDComponents.create_incident_embed(user_state['incident_name'], fire_status)
-            
-            # Add weather information
-            weather = stats['weather']
-            embed.add_field(
-                name=f"{HUDEmojis.INFO} ║ WEATHER CONDITIONS",
-                value=f"```\n"
-                      f"Wind:        {weather['wind_direction']} {weather['wind_speed']:>2} mph\n"
-                      f"Temperature: {weather['temperature']:>6}°F\n"
-                      f"Humidity:    {weather.get('humidity', 'N/A'):>6}%\n"
-                      f"```",
-                inline=True
-            )
+            # Use minimal incident embed with fire grid
+            fire_grid = user_state.get("fire_grid")
+            embed = HUDComponents.create_incident_embed(user_state['incident_name'], fire_status, fire_grid)
             
             await interaction.response.send_message(embed=embed)
         else:
@@ -1495,79 +1497,31 @@ class WildfireCommands(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
             
-        # Create team status embed
-        embed = HUDComponents.create_status_embed(
-            f"TEAM INCIDENT STATUS: {fire_status['incident_name'].upper()}",
-            "Current team incident status and resource deployment",
-            "info"
+        # Get fire grid from game state if available
+        fire_grid = None
+        try:
+            if hasattr(self.game, 'active_fires') and active_fire["id"] in self.game.active_fires:
+                fire_data = self.game.active_fires[active_fire["id"]]
+                fire_grid = fire_data.get('fire_grid')
+        except:
+            pass
+        
+        # Use minimal incident embed for team status
+        embed = HUDComponents.create_incident_embed(
+            fire_status['incident_name'], 
+            fire_status, 
+            fire_grid
         )
         
-        # Fire status section
-        threat_level = fire_status['threat_level']
-        if threat_level in ['HIGH', 'EXTREME']:
-            threat_emoji = HUDEmojis.CRITICAL
-        elif threat_level == 'MODERATE':
-            threat_emoji = HUDEmojis.WARNING
-        else:
-            threat_emoji = HUDEmojis.SUCCESS
-            
-        embed.add_field(
-            name=f"{HUDEmojis.FIRE} ║ CURRENT FIRE STATUS",
-            value=f"```\n"
-                  f"Size:        {fire_status['fire_size_acres']:>6} acres\n"
-                  f"Containment: {fire_status['containment_percent']:>6}%\n"
-                  f"Threat:      {threat_level}\n"
-                  f"Structures:  {fire_status['threatened_structures']:>6} at risk\n"
-                  f"```",
-            inline=True
-        )
-        
-        # Weather conditions
-        weather = fire_status['weather']
-        embed.add_field(
-            name=f"{HUDEmojis.INFO} ║ WEATHER CONDITIONS",
-            value=f"```\n"
-                  f"Wind:        {weather['wind_direction']} {weather['wind_speed']:>2} mph\n"
-                  f"Humidity:    {weather['humidity']:>6}%\n"
-                  f"Temperature: {weather['temperature']:>6}°F\n"
-                  f"```",
-            inline=True
-        )
-        
-        # Team coordination
+        # Team coordination info
         responder_names = [r["name"] for r in fire_status["responders"]]
         team_list = ', '.join(responder_names) if responder_names else 'None assigned'
-        if len(team_list) > 50:  # Truncate if too long
-            team_list = team_list[:47] + "..."
+        if len(team_list) > 40:  # Truncate if too long
+            team_list = team_list[:37] + "..."
             
         embed.add_field(
-            name=f"{HUDEmojis.COMMAND} ║ TEAM COORDINATION",
-            value=f"```\n"
-                  f"Responders:  {len(responder_names):>6} members\n"
-                  f"Team Budget: ${fire_status['team_budget']:>6}k\n"
-                  f"```\n"
-                  f"**Team:** {team_list}",
-            inline=False
-        )
-        
-        # Team resources deployed
-        resources = fire_status['resources_deployed']
-        embed.add_field(
-            name=f"{HUDEmojis.CREW} ║ TEAM RESOURCES DEPLOYED",
-            value=f"```\n"
-                  f"Ground Crews: {resources['hand_crews']:>2} units\n"
-                  f"Engines:      {resources['engines']:>2} units\n"
-                  f"Air Support:  {resources['air_tankers']:>2} units\n"
-                  f"Dozers:       {resources['dozers']:>2} units\n"
-                  f"```",
-            inline=False
-        )
-        
-        # Next actions
-        embed.add_field(
-            name=f"{HUDEmojis.ARROW_RIGHT} ║ TEAM ACTIONS",
-            value=f"{HUDEmojis.BULLET} Team members use `/respond` to deploy additional resources!\n"
-                  f"{HUDEmojis.BULLET} Continue coordinating until fire is contained",
+            name="👥 TEAM MEMBERS",
+            value=f"`{len(responder_names)} active: {team_list}`",
             inline=False
         )
         
@@ -1982,71 +1936,22 @@ class WildfireCommands(commands.Cog):
             'game_phase': user_state['game_phase']
         }
         
-        embed = HUDComponents.create_status_embed(
-            f"WILDFIRE EMERGENCY: {incident_name.upper()}",
-            f"🚨 **IMMEDIATE RESPONSE REQUIRED** 🚨\n**{incident_name.upper()}** is spreading rapidly!",
-            "critical"
-        )
+        # Use minimal incident embed for dispatch
+        fire_grid = user_state.get("fire_grid")
+        embed = HUDComponents.create_incident_embed(incident_name, fire_status, fire_grid)
         
-        # Fire status section
+        # Add tactical options as simple field
         embed.add_field(
-            name=f"{HUDEmojis.FIRE} ║ FIRE STATUS",
-            value=f"```\n"
-                  f"Size:        {stats['fire_size_acres']:>6} acres\n"
-                  f"Containment: {stats['containment_percent']:>6}%\n"
-                  f"Structures:  {threats['threatened_structures']:>6} at risk\n"
-                  f"Threat:      {threats['threat_level']}\n"
-                  f"```",
-            inline=True
-        )
-        
-        # Weather conditions
-        weather = stats['weather']
-        air_ops_status = "FAVORABLE" if weather['wind_speed'] <= 15 else "MARGINAL" if weather['wind_speed'] <= 20 else "GROUNDED"
-        air_ops_emoji = HUDEmojis.SUCCESS if weather['wind_speed'] <= 15 else HUDEmojis.WARNING if weather['wind_speed'] <= 20 else HUDEmojis.CRITICAL
-        
-        embed.add_field(
-            name=f"{HUDEmojis.INFO} ║ WEATHER CONDITIONS",
-            value=f"```\n"
-                  f"Wind:        {weather['wind_direction']} {weather['wind_speed']:>2} mph\n"
-                  f"Temp:        {weather['temperature']:>6}°F\n"
-                  f"Air Ops:     {air_ops_status}\n"
-                  f"```",
-            inline=True
-        )
-        
-        # Strategic assessment
-        fire_size_cat = "SMALL" if stats['fire_size_acres'] <= 30 else "MEDIUM" if stats['fire_size_acres'] <= 60 else "LARGE"
-        urgency = "MANAGEABLE" if stats['fire_size_acres'] <= 50 else "CRITICAL" if stats['fire_size_acres'] <= 100 else "EMERGENCY"
-        
-        embed.add_field(
-            name=f"{HUDEmojis.ACTION} ║ STRATEGIC ASSESSMENT",
-            value=f"```\n"
-                  f"Fire Size:   {fire_size_cat}\n"
-                  f"Urgency:     {urgency}\n"
-                  f"Budget:      ${user_state.get('budget', 20000):,}\n"
-                  f"```",
-            inline=False
-        )
-        
-        # Tactical options
-        embed.add_field(
-            name=f"{HUDEmojis.COMMAND} ║ TACTICAL OPTIONS",
-            value=f"```\n"
-                  f"1 🚒 Ground Crews   $1,800  +50% small fires ≤30 acres\n"
-                  f"2 🚁 Air Support   $12,000  +80% large fires (winds ≤20mph)\n"
-                  f"3 🚛 Engine Company $3,200  +40% medium fires, reliable\n"
-                  f"4 🚜 Dozer          $4,600  +60% firebreaks, prevention\n"
-                  f"```",
+            name="⚡ TACTICAL OPTIONS",
+            value="`1` 🚒 Ground Crews ($1.8k)  `2` 🚁 Air Support ($12k)\n"
+                  "`3` 🚛 Engine Company ($3.2k)  `4` 🚜 Dozer ($4.6k)",
             inline=False
         )
         
         # Mission objective
         embed.add_field(
-            name=f"{HUDEmojis.ARROW_RIGHT} ║ MISSION OBJECTIVE",
-            value=f"{HUDEmojis.FIRE} **CONTAIN FIRE BEFORE IT REACHES 200 ACRES!**\n\n"
-                  f"*Good containment earns additional funding!*\n\n"
-                  f"**Click tactical buttons to deploy resources!**",
+            name="🎯 MISSION",
+            value="`Contain fire before 200 acres!`",
             inline=False
         )
         

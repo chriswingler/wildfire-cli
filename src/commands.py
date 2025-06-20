@@ -312,37 +312,35 @@ async def setup(bot):
         """Create new wildfire incident."""
         fire_data = await cog.game.create_fire(interaction.guild.id, interaction.channel.id)
         
-        # Determine status type based on threat level
-        threat_level = fire_data['threat_level'].upper()
-        status_type = "critical" if threat_level in ["HIGH", "EXTREME"] else "warning" if threat_level == "MODERATE" else "info"
+        # Convert fire_data to fire_status format for minimal embed
+        fire_status = {
+            'incident_name': fire_data.get('id', 'Unknown Fire'),
+            'fire_size_acres': fire_data.get('size_acres', 0),
+            'containment_percent': fire_data.get('containment', 0),
+            'threat_level': fire_data.get('threat_level', 'MODERATE'),
+            'threatened_structures': fire_data.get('threatened_structures', 0),
+            'resources_deployed': fire_data.get('resources_deployed', {'hand_crews': 0, 'engines': 0, 'air_tankers': 0, 'dozers': 0}),
+            'team_budget': fire_data.get('team_budget', 50000),
+            'operational_period': 1,
+            'game_phase': 'active'
+        }
         
-        embed = HUDComponents.create_status_embed(
-            "WILDFIRE INCIDENT REPORTED",
-            f"New **{fire_data['type']} fire** detected requiring immediate response",
-            status_type
+        # Get fire grid if available
+        fire_grid = fire_data.get('fire_grid', None)
+        
+        # Use minimal incident embed
+        embed = HUDComponents.create_incident_embed(
+            fire_data.get('id', 'Unknown Fire'),
+            fire_status,
+            fire_grid
         )
         
+        # Add team response info
         embed.add_field(
-            name=f"{HUDEmojis.FIRE} ║ INCIDENT DETAILS",
-            value=f"```\n"
-                  f"Fire ID:     {fire_data['id']}\n"
-                  f"Type:        {fire_data['type'].title()} Fire\n"
-                  f"Size:        {fire_data['size_acres']:>6} acres\n"
-                  f"Threat:      {threat_level}\n"
-                  f"Containment: {fire_data['containment']:>6}%\n"
-                  f"```",
+            name="👥 TEAM RESPONSE",
+            value="`Use /respond to join the firefighting team!`",
             inline=False
         )
-        
-        embed.add_field(
-            name=f"{HUDEmojis.COMMAND} ║ RESPONSE COMMANDS",
-            value=f"{HUDEmojis.BULLET} `/respond` - Join the firefighting response team\n"
-                  f"{HUDEmojis.BULLET} `/firestatus` - Check status of all active incidents\n"
-                  f"{HUDEmojis.BULLET} `/myrole` - View your current assignments",
-            inline=False
-        )
-        
-        embed.set_footer(text="ICS • Wildfire Command HUD • Educational Simulation")
         await interaction.response.send_message(embed=embed)
     
     @bot.tree.command(name="respond", description="🚒 Respond to active wildfire incident")
@@ -408,38 +406,40 @@ async def setup(bot):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
             
-        embed = HUDComponents.create_status_embed(
-            "ACTIVE INCIDENTS STATUS BOARD",
-            "Current wildfire incidents requiring response",
+        embed = HUDComponents.create_minimal_embed(
+            f"🔥 ACTIVE INCIDENTS ({len(active_fires)})",
             "warning"
         )
         
-        for fire in active_fires[:6]:
-            # Determine status and emoji based on containment
-            if fire["containment"] > 75:
-                status_emoji = HUDEmojis.SUCCESS
-                status_text = "CONTROLLED"
-            elif fire["containment"] > 25:
-                status_emoji = HUDEmojis.WARNING
-                status_text = "ACTIVE"
+        # Show up to 3 fires in compact format
+        for i, fire in enumerate(active_fires[:3]):
+            # Determine status
+            containment = fire["containment"]
+            if containment > 75:
+                status = "🟢 CONTROLLED"
+            elif containment > 25:
+                status = "🟡 ACTIVE"
             else:
-                status_emoji = HUDEmojis.CRITICAL
-                status_text = "CRITICAL"
+                status = "🔴 CRITICAL"
+            
+            # Progress bar for containment
+            progress_bar = HUDComponents.create_progress_bar(containment, 15)
             
             embed.add_field(
-                name=f"{status_emoji} ║ {fire['id'].upper()}",
-                value=f"```\n"
-                      f"Type:        {fire['type'].title()}\n"
-                      f"Size:        {fire['size_acres']:>6} acres\n"
-                      f"Containment: {fire['containment']:>6}%\n"
-                      f"Responders:  {fire['responder_count']:>6}\n"
-                      f"Threat:      {fire['threat_level'].upper()}\n"
-                      f"Status:      {status_text}\n"
-                      f"```",
+                name=f"{fire['id'].upper()}",
+                value=f"`{fire['size_acres']} acres • {fire['responder_count']} team`\n"
+                      f"`{progress_bar}`\n"
+                      f"{status}",
                 inline=True
             )
             
-        embed.set_footer(text=f"ICS • Wildfire Command HUD • {len(active_fires)} active incidents")
+        # Add action if more fires exist
+        if len(active_fires) > 3:
+            embed.add_field(
+                name="➕ MORE FIRES",
+                value=f"`+{len(active_fires) - 3} additional incidents`",
+                inline=True
+            )
         await interaction.response.send_message(embed=embed)
     
     logging.info("🔥 Wildfire commands cog loaded")

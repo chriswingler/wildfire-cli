@@ -62,11 +62,72 @@ class HUDEmojis:
 
 
 class HUDComponents:
-    """Standardized HUD component builders for consistent interface."""
+    """Minimal HUD component builders for clean, focused interface."""
     
     @staticmethod
-    def create_status_embed(title: str, description: str, status_type: str = "info") -> discord.Embed:
-        """Create a standardized status embed with HUD styling."""
+    def create_fire_grid_visual(fire_grid, size: int = 6) -> str:
+        """Create ASCII/emoji representation of fire grid state."""
+        if not fire_grid:
+            return "```\n🟫🟫🟫🟫🟫🟫\n🟫🟩🟩🟩🟩🟫\n🟫🟩🔥🔥🟩🟫\n🟫🟩🔥🔥🟩🟫\n🟫🟩🟩🟩🟩🟫\n🟫🟫🟫🟫🟫🟫\n```"
+        
+        try:
+            # Get grid state from fire_grid
+            grid_state = fire_grid.grid if hasattr(fire_grid, 'grid') else []
+            
+            if not grid_state or len(grid_state) == 0:
+                # Default grid if no data
+                return "```\n🟫🟫🟫🟫🟫🟫\n🟫🟩🟩🟩🟩🟫\n🟫🟩🔥🔥🟩🟫\n🟫🟩🔥🔥🟩🟫\n🟫🟩🟩🟩🟩🟫\n🟫🟫🟫🟫🟫🟫\n```"
+            
+            # Create visual representation
+            grid_visual = "```\n"
+            for row in grid_state[:size]:  # Limit to size x size
+                row_str = ""
+                for cell in row[:size]:
+                    if hasattr(cell, 'state'):
+                        state = cell.state
+                    elif isinstance(cell, dict):
+                        state = cell.get('state', 'empty')
+                    else:
+                        state = str(cell).lower()
+                    
+                    # Map cell states to emojis
+                    if 'burning' in state or 'fire' in state:
+                        row_str += "🔥"
+                    elif 'burned' in state or 'ash' in state:
+                        row_str += "🟫"
+                    elif 'contained' in state or 'suppressed' in state:
+                        row_str += "🚫"
+                    elif 'water' in state or 'retardant' in state:
+                        row_str += "🟦"
+                    else:
+                        row_str += "🟩"  # Unburned/vegetation
+                
+                grid_visual += row_str + "\n"
+            grid_visual += "```"
+            return grid_visual
+            
+        except Exception as e:
+            # Fallback if grid parsing fails
+            return "```\n🟫🟫🟫🟫🟫🟫\n🟫🟩🔥🔥🟩🟫\n🟫🔥🔥🔥🔥🟫\n🟫🔥🔥🔥🔥🟫\n🟫🟩🟩🟩🟩🟫\n🟫🟫🟫🟫🟫🟫\n```"
+    
+    @staticmethod
+    def create_progress_bar(percentage: int, width: int = 20) -> str:
+        """Create visual progress bar for containment."""
+        filled = int(percentage / 100 * width)
+        empty = width - filled
+        
+        if percentage >= 90:
+            bar_char = "🟩"  # Green for high containment
+        elif percentage >= 50:
+            bar_char = "🟨"  # Yellow for medium containment  
+        else:
+            bar_char = "🟥"  # Red for low containment
+            
+        return f"{'█' * filled}{'░' * empty} {percentage}%"
+    
+    @staticmethod
+    def create_minimal_embed(title: str, status_type: str = "info") -> discord.Embed:
+        """Create minimal embed with just title and color."""
         color_map = {
             "critical": HUDColors.CRITICAL,
             "warning": HUDColors.WARNING,
@@ -75,20 +136,10 @@ class HUDComponents:
             "primary": HUDColors.PRIMARY
         }
         
-        emoji_map = {
-            "critical": HUDEmojis.CRITICAL,
-            "warning": HUDEmojis.WARNING,
-            "success": HUDEmojis.SUCCESS,
-            "info": HUDEmojis.INFO,
-            "primary": HUDEmojis.COMMAND
-        }
-        
         color = color_map.get(status_type, HUDColors.INFO)
-        emoji = emoji_map.get(status_type, HUDEmojis.INFO)
         
         embed = discord.Embed(
-            title=f"{emoji} 【SYSTEM】{title.upper()}",
-            description=description,
+            title=title,
             color=color,
             timestamp=datetime.now()
         )
@@ -96,64 +147,59 @@ class HUDComponents:
         return embed
     
     @staticmethod
-    def create_incident_embed(incident_name: str, fire_data: Dict[str, Any]) -> discord.Embed:
-        """Create standardized incident status embed."""
-        # Determine threat level styling
-        threat_level = fire_data.get('threat_level', 'MODERATE').upper()
-        if threat_level in ['HIGH', 'EXTREME']:
-            status_type = "critical"
-            threat_emoji = HUDEmojis.CRITICAL
-        elif threat_level == 'MODERATE':
-            status_type = "warning"
-            threat_emoji = HUDEmojis.WARNING
-        else:
+    def create_incident_embed(incident_name: str, fire_data: Dict[str, Any], fire_grid=None) -> discord.Embed:
+        """Create minimal incident HUD with essential elements only."""
+        # Determine status type
+        containment = fire_data.get('containment_percent', 0)
+        if containment >= 75:
             status_type = "success"
-            threat_emoji = HUDEmojis.SUCCESS
+        elif containment >= 25:
+            status_type = "warning"
+        else:
+            status_type = "critical"
         
-        embed = HUDComponents.create_status_embed(
-            f"INCIDENT: {incident_name}",
-            f"Active wildfire requiring immediate tactical response",
+        embed = HUDComponents.create_minimal_embed(
+            f"🔥 {incident_name.upper()}",
             status_type
         )
         
-        # Fire status section
+        # Progress Bar (Containment)
+        progress_bar = HUDComponents.create_progress_bar(containment)
         embed.add_field(
-            name=f"{HUDEmojis.FIRE} ║ FIRE STATUS",
-            value=f"```\n"
-                  f"Size:        {fire_data.get('fire_size_acres', 0):>6} acres\n"
-                  f"Containment: {fire_data.get('containment_percent', 0):>6}%\n"
-                  f"Threat:      {threat_emoji} {threat_level}\n"
-                  f"Structures:  {fire_data.get('threatened_structures', 0):>6} at risk\n"
-                  f"```",
-            inline=True
-        )
-        
-        # Resource deployment section
-        resources = fire_data.get('resources_deployed', {})
-        embed.add_field(
-            name=f"{HUDEmojis.COMMAND} ║ DEPLOYED RESOURCES",
-            value=f"```\n"
-                  f"Ground Crews: {resources.get('hand_crews', 0):>2} units\n"
-                  f"Engines:      {resources.get('engines', 0):>2} units\n"
-                  f"Air Support:  {resources.get('air_tankers', 0):>2} units\n"
-                  f"Dozers:       {resources.get('dozers', 0):>2} units\n"
-                  f"```",
-            inline=True
-        )
-        
-        # Command section
-        budget = fire_data.get('budget', fire_data.get('team_budget', 0))
-        embed.add_field(
-            name=f"{HUDEmojis.STATUS} ║ COMMAND STATUS",
-            value=f"```\n"
-                  f"Budget:   ${budget:>8}k\n"
-                  f"Period:   {fire_data.get('operational_period', 1):>8}\n"
-                  f"Phase:    {fire_data.get('game_phase', 'ACTIVE').upper():>8}\n"
-                  f"```",
+            name="📊 CONTAINMENT",
+            value=f"`{progress_bar}`",
             inline=False
         )
         
-        embed.set_footer(text="ICS • Wildfire Command HUD • Real-time Tactical Display")
+        # Balance (Budget)
+        budget = fire_data.get('budget', fire_data.get('team_budget', 0))
+        embed.add_field(
+            name="💰 BUDGET",
+            value=f"`${budget:,}k`",
+            inline=True
+        )
+        
+        # Stock (Resources)
+        resources = fire_data.get('resources_deployed', {})
+        total_resources = sum([
+            resources.get('hand_crews', 0),
+            resources.get('engines', 0),
+            resources.get('air_tankers', 0),
+            resources.get('dozers', 0)
+        ])
+        embed.add_field(
+            name="🚒 RESOURCES",
+            value=f"`{total_resources} units`",
+            inline=True
+        )
+        
+        # Fire Grid Visual (replacing image)
+        fire_visual = HUDComponents.create_fire_grid_visual(fire_grid)
+        embed.add_field(
+            name="🗺️ FIRE GRID",
+            value=fire_visual,
+            inline=False
+        )
         
         return embed
     
@@ -167,107 +213,132 @@ class HUDComponents:
         return embed
     
     @staticmethod
-    def create_resource_deployment_embed(resource_name: str, deployment_result: Dict[str, Any], fire_status: Dict[str, Any]) -> discord.Embed:
-        """Create standardized resource deployment result embed."""
-        embed = HUDComponents.create_action_embed(
-            f"{resource_name.upper()} DEPLOYED",
-            f"Tactical resource deployment to {fire_status.get('incident_name', 'ACTIVE INCIDENT')}",
-            deployment_result.get('success', False)
+    def create_resource_deployment_embed(resource_name: str, deployment_result: Dict[str, Any], fire_status: Dict[str, Any], fire_grid=None) -> discord.Embed:
+        """Create minimal resource deployment result embed."""
+        success = deployment_result.get('success', False)
+        status_type = "success" if success else "critical"
+        
+        embed = HUDComponents.create_minimal_embed(
+            f"🚒 {resource_name.upper()} DEPLOYED",
+            status_type
         )
         
-        # Add tactical analysis if available
-        if 'changes' in deployment_result:
-            changes = deployment_result['changes']
-            embed.add_field(
-                name=f"{HUDEmojis.ACTION} ║ TACTICAL ANALYSIS",
-                value=changes,
-                inline=False
-            )
-        
-        # Add current status
+        # Progress Bar (Updated Containment)
+        containment = fire_status.get('containment_percent', 0)
+        progress_bar = HUDComponents.create_progress_bar(containment)
         embed.add_field(
-            name=f"{HUDEmojis.STATUS} ║ UPDATED STATUS",
-            value=f"```\n"
-                  f"Fire Size:    {fire_status.get('fire_size_acres', 0):>6} acres\n"
-                  f"Containment:  {fire_status.get('containment_percent', 0):>6}%\n"
-                  f"Budget:       ${fire_status.get('budget', fire_status.get('team_budget', 0)):>6}k\n"
-                  f"```",
+            name="📊 CONTAINMENT",
+            value=f"`{progress_bar}`",
+            inline=False
+        )
+        
+        # Budget and Resources side by side
+        budget = fire_status.get('budget', fire_status.get('team_budget', 0))
+        embed.add_field(
+            name="💰 BUDGET",
+            value=f"`${budget:,}k`",
             inline=True
         )
         
-        # Add next actions
-        embed.add_field(
-            name=f"{HUDEmojis.ARROW_RIGHT} ║ NEXT ACTIONS",
-            value=f"{HUDEmojis.BULLET} `/respond` - Deploy additional resources\n"
-                  f"{HUDEmojis.BULLET} `/firestatus` - Get situation report\n"
-                  f"{HUDEmojis.BULLET} `/advance` - Progress operational period",
-            inline=True
-        )
-        
-        return embed
-    
-    @staticmethod
-    def create_team_deployment_embed(user_name: str, resource_name: str, fire_status: Dict[str, Any], auto_progression: Optional[Dict[str, Any]] = None) -> discord.Embed:
-        """Create standardized team deployment embed."""
-        embed = HUDComponents.create_action_embed(
-            f"TEAM DEPLOYMENT: {resource_name.upper()}",
-            f"**{user_name}** deployed {resource_name} to **{fire_status.get('incident_name', 'TEAM INCIDENT')}**"
-        )
-        
-        # Team fire status
-        threat_level = fire_status.get('threat_level', 'MODERATE')
-        if threat_level in ['HIGH', 'EXTREME']:
-            threat_emoji = HUDEmojis.CRITICAL
-        elif threat_level == 'MODERATE':
-            threat_emoji = HUDEmojis.WARNING
-        else:
-            threat_emoji = HUDEmojis.SUCCESS
-            
-        embed.add_field(
-            name=f"{HUDEmojis.FIRE} ║ TEAM FIRE STATUS",
-            value=f"```\n"
-                  f"Size:        {fire_status.get('fire_size_acres', 0):>6} acres\n"
-                  f"Containment: {fire_status.get('containment_percent', 0):>6}%\n"
-                  f"Threat:      {threat_emoji} {threat_level}\n"
-                  f"Structures:  {fire_status.get('threatened_structures', 0):>6} at risk\n"
-                  f"```",
-            inline=True
-        )
-        
-        # Team resources
         resources = fire_status.get('resources_deployed', {})
+        total_resources = sum([
+            resources.get('hand_crews', 0),
+            resources.get('engines', 0),
+            resources.get('air_tankers', 0),
+            resources.get('dozers', 0)
+        ])
         embed.add_field(
-            name=f"{HUDEmojis.COMMAND} ║ TEAM RESOURCES",
-            value=f"```\n"
-                  f"Ground Crews: {resources.get('hand_crews', 0):>2} units\n"
-                  f"Engines:      {resources.get('engines', 0):>2} units\n"
-                  f"Air Support:  {resources.get('air_tankers', 0):>2} units\n"
-                  f"Dozers:       {resources.get('dozers', 0):>2} units\n"
-                  f"```",
+            name="🚒 RESOURCES",
+            value=f"`{total_resources} units`",
             inline=True
         )
         
-        # Auto progression message
-        auto_message = ""
-        if auto_progression:
-            if auto_progression.get('budget_earned', 0) > 0:
-                auto_message = f"\n{HUDEmojis.SUCCESS} **TEAM BONUS: +${auto_progression['budget_earned']}k budget!**\nExcellent team coordination!"
-            else:
-                auto_message = f"\n{HUDEmojis.WARNING} **FIRE SPREADING!**\nTeam needs more suppression - deploy fast!"
-        
+        # Fire Grid Visual
+        fire_visual = HUDComponents.create_fire_grid_visual(fire_grid)
         embed.add_field(
-            name=f"{HUDEmojis.BUDGET} ║ TEAM COMMAND",
-            value=f"```\nTeam Budget: ${fire_status.get('team_budget', 0):>6}k remaining```{auto_message}\n\n"
-                  f"**Team members continue using `/respond` to deploy more resources!**",
+            name="🗺️ FIRE GRID",
+            value=fire_visual,
             inline=False
         )
         
         return embed
     
     @staticmethod
+    def create_team_deployment_embed(user_name: str, resource_name: str, fire_status: Dict[str, Any], fire_grid=None, auto_progression: Optional[Dict[str, Any]] = None) -> discord.Embed:
+        """Create minimal team deployment embed."""
+        containment = fire_status.get('containment_percent', 0)
+        status_type = "success" if containment >= 75 else "warning" if containment >= 25 else "critical"
+        
+        embed = HUDComponents.create_minimal_embed(
+            f"👥 TEAM: {resource_name.upper()}",
+            status_type
+        )
+        
+        # Who deployed
+        embed.add_field(
+            name="👤 DEPLOYED BY",
+            value=f"`{user_name}`",
+            inline=False
+        )
+        
+        # Progress Bar (Containment)
+        progress_bar = HUDComponents.create_progress_bar(containment)
+        embed.add_field(
+            name="📊 CONTAINMENT",
+            value=f"`{progress_bar}`",
+            inline=False
+        )
+        
+        # Budget and Resources side by side
+        budget = fire_status.get('team_budget', fire_status.get('budget', 0))
+        embed.add_field(
+            name="💰 TEAM BUDGET",
+            value=f"`${budget:,}k`",
+            inline=True
+        )
+        
+        resources = fire_status.get('resources_deployed', {})
+        total_resources = sum([
+            resources.get('hand_crews', 0),
+            resources.get('engines', 0),
+            resources.get('air_tankers', 0),
+            resources.get('dozers', 0)
+        ])
+        embed.add_field(
+            name="🚒 TEAM RESOURCES",
+            value=f"`{total_resources} units`",
+            inline=True
+        )
+        
+        # Fire Grid Visual
+        fire_visual = HUDComponents.create_fire_grid_visual(fire_grid)
+        embed.add_field(
+            name="🗺️ FIRE GRID",
+            value=fire_visual,
+            inline=False
+        )
+        
+        # Auto progression bonus message
+        if auto_progression and auto_progression.get('budget_earned', 0) > 0:
+            embed.add_field(
+                name="🏆 TEAM BONUS",
+                value=f"`+${auto_progression['budget_earned']}k budget!`",
+                inline=False
+            )
+        
+        return embed
+    
+    @staticmethod
     def create_simple_info_embed(title: str, description: str, fields: Optional[List[Dict[str, Any]]] = None) -> discord.Embed:
-        """Create simple informational embed with HUD styling."""
-        embed = HUDComponents.create_status_embed(title, description, "info")
+        """Create minimal informational embed."""
+        embed = HUDComponents.create_minimal_embed(title, "info")
+        
+        if description:
+            embed.add_field(
+                name="ℹ️ INFO",
+                value=f"`{description}`",
+                inline=False
+            )
         
         if fields:
             for field in fields:
@@ -281,15 +352,36 @@ class HUDComponents:
     
     @staticmethod
     def create_error_embed(title: str, description: str, suggestions: Optional[List[str]] = None) -> discord.Embed:
-        """Create standardized error embed."""
-        embed = HUDComponents.create_status_embed(title, description, "critical")
+        """Create minimal error embed."""
+        embed = HUDComponents.create_minimal_embed(title, "critical")
+        
+        embed.add_field(
+            name="❌ ERROR",
+            value=f"`{description}`",
+            inline=False
+        )
         
         if suggestions:
-            suggestion_text = "\n".join(f"{HUDEmojis.BULLET} {suggestion}" for suggestion in suggestions)
+            suggestion_text = "\n".join(f"`{suggestion}`" for suggestion in suggestions)
             embed.add_field(
-                name=f"{HUDEmojis.INFO} ║ SUGGESTED ACTIONS",
+                name="💡 SUGGESTIONS",
                 value=suggestion_text,
                 inline=False
             )
+        
+        return embed
+    
+    @staticmethod
+    def create_action_embed(title: str, description: str, success: bool = True) -> discord.Embed:
+        """Create minimal action result embed."""
+        status_type = "success" if success else "critical"
+        embed = HUDComponents.create_minimal_embed(title, status_type)
+        
+        icon = "✅" if success else "❌"
+        embed.add_field(
+            name=f"{icon} RESULT",
+            value=f"`{description}`",
+            inline=False
+        )
         
         return embed
