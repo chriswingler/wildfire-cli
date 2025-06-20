@@ -44,3 +44,8 @@ discord:
     warning: 0xffaa00
     danger: 0xff0000
     info: 0x0099ff
+  indexing_skipped_channel_ids: [] # New configuration, empty list by default
+  # Example of how it might look if populated:
+  # indexing_skipped_channel_ids:
+  #   - "123456789012345678" # Sensitive channel 1
+  #   - "987654321098765432" # Admin announcements

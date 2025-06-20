@@ -11,11 +11,16 @@ import time
 from datetime import datetime, timedelta
 import json
 import os
+import aiosqlite # Add this if not present
+from src.indexing.message_indexer import MessageIndexer, setup_message_indexer # Add this
 from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
-from config.settings import config
+from config.settings import config # Existing import
+from config.settings import config as app_config # Ensure this import is at the top of the file
+
+DB_PATH = "wildfire_database.db"
 
 
 class TeamTacticalChoicesView(discord.ui.View):
@@ -1014,6 +1019,8 @@ class WildfireCommands(commands.Cog):
         self.game = WildfireGame()
         self.singleplayer_game = SingleplayerGame()
         self.auto_progression_task = None
+        self.db_path = DB_PATH # Add this line
+        self.message_indexer = None # Add this line
 
         # Load admin user IDs for debug commands
         admin_ids_str = os.getenv("ADMIN_USER_IDS", "")
@@ -1066,6 +1073,32 @@ class WildfireCommands(commands.Cog):
         print(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
         
         # Start auto-progression background task
+        if not self.auto_progression_task or self.auto_progression_task.done():
+            self.auto_progression_task = asyncio.create_task(self._auto_progression_loop())
+
+        # ADD NEW CODE FOR INDEXER SETUP HERE:
+        try:
+            print(f"Initializing message indexer with DB path: {self.db_path}")
+            # Assuming 'config' is available as self.bot.config or loaded globally as 'config'
+            # If config is loaded into bot instance e.g. self.bot.config
+            # skipped_ids = self.bot.config.discord.indexing_skipped_channel_ids
+            # If config is a global import 'from config.settings import config'
+
+            skipped_ids = app_config.discord.indexing_skipped_channel_ids
+            delay_seconds = app_config.game.progression.auto_progression_seconds # Or a new config for indexing delay
+
+            # Make sure setup_message_indexer is called with all required arguments
+            self.message_indexer = await setup_message_indexer(
+                self.bot,
+                self.db_path,
+                skipped_channel_ids=skipped_ids, # Pass the loaded list
+                incremental_index_delay_seconds=delay_seconds # Example: reuse existing or add new config
+            )
+            print(f"Message indexer setup successfully. Skipped channels: {skipped_ids}")
+        except Exception as e:
+            print(f"Error setting up message indexer: {e}")
+
+        # Ensure existing tasks like auto_progression_loop are started after indexer setup
         if not self.auto_progression_task or self.auto_progression_task.done():
             self.auto_progression_task = asyncio.create_task(self._auto_progression_loop())
 
