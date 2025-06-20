@@ -10,7 +10,28 @@ from enum import Enum
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import json
+import logging # Added
+from functools import wraps # Added
 
+perf_logger = logging.getLogger('PerformanceMetrics')
+# Assume logger is configured by the main application
+if not perf_logger.handlers:
+    pass # Assume logger is configured by the main application
+
+def time_simulation_method(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        method_name = func.__name__
+        class_name = self.__class__.__name__
+        start_time = time.perf_counter()
+        try:
+            perf_logger.info(f"SIM_METHOD_START: {class_name}.{method_name}")
+            return func(self, *args, **kwargs)
+        finally:
+            end_time = time.perf_counter()
+            duration = end_time - start_time
+            perf_logger.info(f"SIM_METHOD_END: {class_name}.{method_name}, Execution Time: {duration:.4f}s")
+    return wrapper
 
 class TerrainType(Enum):
     """Terrain types affecting fire behavior."""
@@ -181,6 +202,7 @@ class FireGrid:
             if 0 <= adj_x < self.size and 0 <= adj_y < self.size:
                 self.grid[adj_y][adj_x].ignite()
     
+    @time_simulation_method
     def spread_fire(self):
         """Spread fire to adjacent cells based on conditions."""
         new_fires = []
@@ -267,6 +289,7 @@ class FireGrid:
                     if burn_time.total_seconds() / 3600 > burnout_hours:
                         cell.burn_out()
     
+    @time_simulation_method
     def apply_suppression(self, suppression_points: int):
         """Apply suppression efforts to burning cells."""
         burning_cells = []
@@ -298,6 +321,7 @@ class FireGrid:
             if random.random() < contain_prob:
                 cell.contain()
     
+    @time_simulation_method
     def get_fire_statistics(self) -> Dict:
         """Get current fire statistics for reporting."""
         burning_count = 0
@@ -336,6 +360,7 @@ class FireGrid:
             "incident_duration": str(datetime.now() - self.incident_start_time).split('.')[0]
         }
     
+    @time_simulation_method
     def advance_operational_period(self):
         """Advance to next operational period."""
         self.operational_period += 1
@@ -355,6 +380,7 @@ class FireGrid:
                     return False
         return True
     
+    @time_simulation_method
     def get_threat_assessment(self) -> Dict:
         """Assess threats to structures and values at risk."""
         urban_cells = 0

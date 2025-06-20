@@ -11,10 +11,39 @@ import time
 from datetime import datetime, timedelta
 import json
 import os
+import logging # Added
+from functools import wraps # Added
 from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
+from . import monitoring_utils # Added
+
+# At the top of src/discord_wildfire.py
+perf_logger = logging.getLogger('PerformanceMetrics')
+
+# Decorator definition
+def time_command(func):
+    @wraps(func)
+    async def wrapper(self, interaction: discord.Interaction, *args, **kwargs):
+        start_time = time.perf_counter()
+        command_name = func.__name__
+        # For app commands, the interaction object has the command name
+        if interaction.command:
+             command_name = interaction.command.name
+
+        try:
+            if self.bot and hasattr(self.bot, 'latency'):
+                perf_logger.info(f"COMMAND_START: {command_name}, User: {interaction.user.id}, Guild: {interaction.guild.id if interaction.guild else 'DM'}, Bot Latency: {self.bot.latency:.4f}s")
+            else:
+                perf_logger.info(f"COMMAND_START: {command_name}, User: {interaction.user.id}, Guild: {interaction.guild.id if interaction.guild else 'DM'}, Bot instance or latency not available.")
+
+            return await func(self, interaction, *args, **kwargs)
+        finally:
+            end_time = time.perf_counter()
+            duration = end_time - start_time
+            perf_logger.info(f"COMMAND_END: {command_name}, User: {interaction.user.id}, Guild: {interaction.guild.id if interaction.guild else 'DM'}, Execution Time: {duration:.4f}s")
+    return wrapper
 
 
 class TeamTacticalChoicesView(discord.ui.View):
@@ -161,7 +190,7 @@ class TeamTacticalChoicesView(discord.ui.View):
                 await interaction.response.send_message(embed=embed, ephemeral=True)
                 
         except Exception as e:
-            print(f"Error in team choice handling: {e}")
+            perf_logger.exception(f"Error in team choice handling for fire {self.fire_id}, user {self.user_id}:")
             embed = HUDComponents.create_error_embed(
                 "SYSTEM ERROR",
                 "Error processing team deployment - please try again"
@@ -409,7 +438,7 @@ class TacticalChoicesView(discord.ui.View):
                 else:
                     await interaction.response.send_message(embed=embed)
         except Exception as e:
-            print(f"Error in _handle_choice_result: {e}")
+            perf_logger.exception(f"Error in _handle_choice_result for user {self.user_id}:")
             # Show basic tactical update even on error
             user_state = self.singleplayer_game.get_user_state(self.user_id)
             stats = user_state["fire_grid"].get_fire_statistics() if user_state.get("fire_grid") else {}
@@ -1017,10 +1046,26 @@ class WildfireCommands(commands.Cog):
         self.game = WildfireGame()
         self.singleplayer_game = SingleplayerGame()
         self.auto_progression_task = None
+        self.resource_log_counter = 0 # Added
+        self.RESOURCE_LOG_INTERVAL = 30 # Added
         
     @commands.Cog.listener()
     async def on_ready(self):
         """Bot startup handler."""
+        # At the beginning of on_ready
+        # Global logger is already defined
+        if not perf_logger.handlers: # Check the global logger
+            # Ensure logs directory exists
+            if not os.path.exists('logs'):
+                os.makedirs('logs')
+            handler = logging.FileHandler('logs/performance_metrics.log')
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            perf_logger.addHandler(handler)
+            perf_logger.setLevel(logging.INFO)
+            perf_logger.info("PerformanceMetrics logger initialized.")
+        # ... rest of on_ready
+        monitoring_utils.check_and_log_database_usage() # Added
         await self.bot.change_presence(activity=discord.Game(name="🔥 Wildfire Response MMORPG"))
         
         # Debug command tree state
@@ -1045,7 +1090,7 @@ class WildfireCommands(commands.Cog):
                 
             print(f"🔥 Total {total_synced} guild commands synced")
         except Exception as e:
-            print(f"Failed to sync commands: {e}")
+            perf_logger.error(f"Failed to sync commands: {e}", exc_info=True)
             
         print(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
         
@@ -1142,6 +1187,7 @@ class WildfireCommands(commands.Cog):
             
             await channel.send(message)
         
+    @time_command # Added
     @discord.app_commands.command(name="fire", description="Report a new wildfire incident")
     async def fire_command(self, interaction: discord.Interaction):
         """Create new wildfire incident - context-aware for DM vs Guild."""
@@ -1245,7 +1291,7 @@ class WildfireCommands(commands.Cog):
             await interaction.followup.send(message)
             
         except Exception as e:
-            print(f"Error in multiplayer fire creation: {e}")
+            perf_logger.exception(f"Error in multiplayer fire creation for interaction {interaction.id}:")
             try:
                 if not interaction.response.is_done():
                     await interaction.response.send_message("❌ Error creating fire incident", ephemeral=True)
@@ -1254,6 +1300,7 @@ class WildfireCommands(commands.Cog):
             except:
                 pass
         
+    @time_command # Added
     @discord.app_commands.command(name="respond", description="Respond to active wildfire incident")
     async def respond_command(self, interaction: discord.Interaction):
         """Assign player to active fire - context-aware for DM vs Guild."""
@@ -1390,7 +1437,7 @@ class WildfireCommands(commands.Cog):
             await interaction.followup.send(message, view=view)
             
         except Exception as e:
-            print(f"Error in multiplayer respond: {e}")
+            perf_logger.exception(f"Error in multiplayer respond for interaction {interaction.id}:")
             try:
                 if not interaction.response.is_done():
                     await interaction.response.send_message("❌ Error joining incident", ephemeral=True)
@@ -1407,6 +1454,7 @@ class WildfireCommands(commands.Cog):
                 return fire_data
         return None
             
+    @time_command # Added
     @discord.app_commands.command(name="firestatus", description="Check status of active fires")
     async def status_command(self, interaction: discord.Interaction):
         """Display current fire status - context-aware for DM vs Guild."""
@@ -1572,6 +1620,7 @@ class WildfireCommands(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
         
+    @time_command # Added
     @discord.app_commands.command(name="start", description="🚀 Begin new wildfire incident command scenario (DM only)")
     async def start_command(self, interaction: discord.Interaction):
         """Start compelling wildfire scenario with full simulation."""
@@ -1785,6 +1834,7 @@ class WildfireCommands(commands.Cog):
         # Clear the state
         self.singleplayer_game.clear_user_state(interaction.user.id)
         
+    @time_command # Added
     @discord.app_commands.command(name="advance", description="⏰ Advance to next operational period (DM only)")
     async def advance_command(self, interaction: discord.Interaction):
         """Advance operational period with fire progression."""
@@ -1835,6 +1885,7 @@ class WildfireCommands(commands.Cog):
         discord.app_commands.Choice(name="👥 Resource Status", value="resources"),
         discord.app_commands.Choice(name="🚨 Initial Dispatch", value="initial")
     ])
+    @time_command # Added
     async def report_command(self, interaction: discord.Interaction, report_type: str):
         """Generate specific incident report types."""
         if interaction.guild is not None:
@@ -2119,9 +2170,9 @@ Use `/stop` to see your performance report."""
         try:
             await channel.send(update_message)
         except discord.Forbidden:
-            print(f"Cannot send update to channel {fire_data['channel_id']} - permissions issue")
+            perf_logger.warning(f"Cannot send update to channel {fire_data['channel_id']} (Forbidden) for fire {fire_id}.")
         except Exception as e:
-            print(f"Error sending guild fire update: {e}")
+            perf_logger.exception(f"Error sending guild fire update for fire {fire_id}:")
     
     async def _auto_progression_loop(self):
         """Background task that automatically progresses fires and sends updates."""
@@ -2163,7 +2214,7 @@ Use `/stop` to see your performance report."""
                                 pass
                                 
                         except Exception as e:
-                            print(f"Error in auto-progression for user {user_id}: {e}")
+                            perf_logger.exception(f"Error in auto-progression for user {user_id}:")
                 
                 # Process guild fires
                 for fire_id, fire_data in list(self.game.active_fires.items()):
@@ -2186,11 +2237,23 @@ Use `/stop` to see your performance report."""
                             await self._send_guild_fire_update(fire_id, auto_result)
                                 
                         except Exception as e:
-                            print(f"Error in guild fire auto-progression for {fire_id}: {e}")
+                            perf_logger.exception(f"Error in guild fire auto-progression for {fire_id}:")
                             
             except Exception as e:
-                print(f"Error in auto-progression loop: {e}")
+                perf_logger.exception("Error in _auto_progression_loop:")
                 await asyncio.sleep(30)  # Wait longer on error
+
+            # Periodically log resource usage
+            self.resource_log_counter += 1
+            if self.resource_log_counter >= self.RESOURCE_LOG_INTERVAL:
+                self.resource_log_counter = 0
+                try:
+                    monitoring_utils.log_cpu_usage()
+                    monitoring_utils.log_memory_usage()
+                    monitoring_utils.log_gc_stats()
+                    perf_logger.info("Periodic resource metrics logged.")
+                except Exception as e:
+                    perf_logger.error(f"Error logging periodic resource metrics: {e}")
 
 
 async def setup_wildfire_commands(bot):
