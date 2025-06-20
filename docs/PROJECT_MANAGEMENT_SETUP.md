@@ -161,30 +161,38 @@ mutation {
 
 ## Project Views Setup
 
-### 1. Kanban Board View
+### 1. Status Kanban Board View
 **Columns to create:**
 - 📥 **Backlog** (status: Todo)
-- 🏃 **Sprint Backlog** (status: Todo + current sprint)
-- 👷 **In Progress** (status: In Progress)
-- 👀 **Code Review** (status: In Progress + has PR)
-- 🧪 **Testing** (status: In Progress + testing label)
+- 🎯 **Ready** (status: Todo + defined/ready)
+- 🔄 **In Progress** (status: In Progress)
+- 🔍 **Review** (status: In Progress + has PR)
 - ✅ **Done** (status: Done)
+- 🚀 **Deployed** (status: Done + deployed)
 
-### 2. Sprint Planning View
+### 2. Priority Kanban Board View
+**Priority-stacked columns (vertical urgency):**
+- 🔴 **Critical** (priority: Critical)
+- 🟠 **High** (priority: High)
+- 🟡 **Medium** (priority: Medium)
+- 🟢 **Low** (priority: Low)
+**Within each column, sort by Status**: Ready → In Progress → Review → Done
+
+### 3. Sprint Planning View
 **Filters:**
 - Current sprint iteration
 - Group by: Epic
 - Sort by: Priority, Story Points
 - Show: Story Points sum
 
-### 3. Roadmap View
+### 4. Roadmap View
 **Configuration:**
 - Group by: Milestone
 - Show: Epic progress
 - Timeline: 3 months
 - Markers: Sprint boundaries
 
-### 4. Burnup Chart View
+### 5. Burnup Chart View
 **Metrics:**
 - Planned points vs completed points
 - Velocity trending
@@ -199,6 +207,8 @@ mutation {
 - **Story Points**: 3
 - **Priority**: 🟠 High
 - **Sprint**: Sprint 1
+- **Start Date**: 2025-06-20
+- **Target Date**: 2025-07-03
 - **Acceptance Criteria**:
   - [ ] Python package structure follows best practices
   - [ ] requirements.txt includes all dependencies

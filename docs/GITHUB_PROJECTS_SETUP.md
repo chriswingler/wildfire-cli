@@ -94,11 +94,19 @@ GitHub Projects provides powerful project management capabilities that integrate
 
 #### Step 4: Configure Issues with Agile Metadata
 
+**🗓️ IMPORTANT: Always Include Dates**
+- **Start Date**: When work should begin
+- **Target Date**: Expected completion date
+- **Epic**: Categorize by functional area
+- **Sprint**: Assign to specific iteration
+
 **Issue #1 (Project structure and dependencies)**
 - Story Points: 3
 - Priority: 🟠 High
 - Epic: 🧪 Testing
 - Sprint: Sprint 1
+- Start Date: 2025-06-20
+- Target Date: 2025-07-03
 
 **Issue #2 (Update CLAUDE.md)**
 - Story Points: 2  
@@ -170,25 +178,39 @@ GitHub Projects provides powerful project management capabilities that integrate
 5. **Filter**: Current sprint iteration
 6. **Fields to show**: Title, Assignee, Status, Story Points, Priority, Epic
 
-**View 2: Kanban Board**
+**View 2: Status Kanban Board**
 1. **View name**: "Development Board"
 2. **Layout**: Board
 3. **Group by**: Status
 4. **Columns**:
-   - 📥 Todo
-   - 🏃 In Progress
-   - 👀 In Review
+   - 📥 Backlog
+   - 🎯 Ready
+   - 🔄 In Progress
+   - 🔍 Review
    - ✅ Done
+   - 🚀 Deployed
 5. **Fields to show**: Story Points, Priority, Epic
 
-**View 3: Epic Roadmap**
+**View 3: Priority Kanban Board**
+1. **View name**: "Priority Board"
+2. **Layout**: Board
+3. **Group by**: Priority
+4. **Columns** (vertical priority stack):
+   - 🔴 Critical
+   - 🟠 High
+   - 🟡 Medium
+   - 🟢 Low
+5. **Fields to show**: Status, Story Points, Epic
+6. **Sort within columns**: By Status (Ready → In Progress → Review → Done)
+
+**View 4: Epic Roadmap**
 1. **View name**: "Epic Roadmap"
 2. **Layout**: Roadmap
 3. **Group by**: Epic
 4. **Timeline**: 3 months
 5. **Show**: Sprint boundaries as markers
 
-**View 4: Sprint Burndown**
+**View 5: Sprint Burndown**
 1. **View name**: "Sprint Metrics"
 2. **Layout**: Table
 3. **Group by**: Sprint

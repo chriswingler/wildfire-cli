@@ -30,9 +30,14 @@
 
 ### 4. Create Views
 
-**Sprint Board** (Board view):
+**Status Board** (Board view):
 - Group by: Status
-- Columns: Todo, In Progress, In Review, Done
+- Columns: Backlog, Ready, In Progress, Review, Done, Deployed
+
+**Priority Board** (Board view):
+- Group by: Priority 
+- Columns: 🔴 Critical, 🟠 High, 🟡 Medium, 🟢 Low
+- Sort within columns: By Status
 
 **Planning Table** (Table view):
 - Group by: Sprint
@@ -46,10 +51,12 @@
 
 Copy-paste these values into each issue's project fields:
 
+**🗓️ ALWAYS INCLUDE DATES:** Every task must have Start Date and Target Date for roadmap visibility.
+
 ```
-Issue #1: Story Points=3, Priority=🟠 High, Epic=🧪 Testing, Sprint=Sprint 1
-Issue #2: Story Points=2, Priority=🟠 High, Epic=🧪 Testing, Sprint=Sprint 1  
-Issue #3: Story Points=8, Priority=🔴 Critical, Epic=🔥 Fire Engine, Sprint=Sprint 1
+Issue #1: Story Points=3, Priority=🟠 High, Epic=🧪 Testing, Sprint=Sprint 1, Start=2025-06-20, Target=2025-07-03
+Issue #2: Story Points=2, Priority=🟠 High, Epic=🧪 Testing, Sprint=Sprint 1, Start=2025-06-20, Target=2025-06-27  
+Issue #3: Story Points=8, Priority=🔴 Critical, Epic=🔥 Fire Engine, Sprint=Sprint 1, Start=2025-06-21, Target=2025-07-15
 Issue #4: Story Points=5, Priority=🔴 Critical, Epic=🔥 Fire Engine, Sprint=Sprint 2
 Issue #5: Story Points=8, Priority=🔴 Critical, Epic=🎮 Game Loop, Sprint=Sprint 2
 Issue #6: Story Points=5, Priority=🟠 High, Epic=🖥️ UI/UX, Sprint=Sprint 3
