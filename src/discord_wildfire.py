@@ -1956,6 +1956,124 @@ class WildfireCommands(commands.Cog):
         # Use defer + followup for clean DM conversation (no reply chains)
         await interaction.response.defer()
         await interaction.followup.send(embed=embed)
+
+    @discord.app_commands.checks.cooldown(1, 5.0, key=lambda i: i.user.id)
+    @discord.app_commands.command(name="search", description="Search indexed messages")
+    @discord.app_commands.describe(query="Search query (max 200 characters)")
+    async def search_command(self, interaction: discord.Interaction, query: discord.app_commands.Range[str, None, 200]):
+        """Search indexed messages for a query."""
+        try:
+            # Placeholder for searching indexed messages
+            # Placeholder for LLM integration for context-aware results
+            # embed = HUDComponents.create_simple_info_embed(
+            #     "Search Under Development",
+            #     "Search functionality is currently under development. Please check back later.",
+            #     []
+            # )
+            placeholder_results = ["Placeholder result 1: Found a message about 'fire'", "Placeholder result 2: Another mention of 'tactical deployment'"]
+            if query.lower() == "empty": # Test case for no results
+                placeholder_results = []
+            embed = HUDComponents.create_search_results_embed(query, placeholder_results)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            print(f"Error in search_command: {e}")
+            embed = HUDComponents.create_error_embed(
+                "SEARCH ERROR",
+                "An error occurred while trying to perform a search."
+            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.app_commands.checks.cooldown(1, 10.0, key=lambda i: i.user.id)
+    @discord.app_commands.command(name="ask", description="Ask a question about indexed information")
+    @discord.app_commands.describe(question="Your question (max 300 characters)")
+    async def ask_command(self, interaction: discord.Interaction, question: discord.app_commands.Range[str, None, 300]):
+        """Asks a question to an LLM based on indexed information."""
+        try:
+            # Placeholder for LLM-powered question answering logic
+            # Placeholder for considering conversation history (e.g., interaction.message.reference)
+            # Placeholder for source citation and confidence scoring
+            # embed = HUDComponents.create_simple_info_embed(
+            #     "Ask Under Development",
+            #     "Ask functionality is currently under development. Please check back later.",
+            #     []
+            # )
+            placeholder_answer = "This is a placeholder answer to your question about wildfire response protocols. More detailed information will be available soon."
+            placeholder_sources = ["Incident Report XYZ-123", "Wildfire Training Manual Ch. 4"]
+            placeholder_confidence = 0.88
+            if question.lower() == "no source": # Test case for no sources/confidence
+                placeholder_sources = []
+                placeholder_confidence = None
+            embed = HUDComponents.create_ask_response_embed(question, placeholder_answer, sources=placeholder_sources, confidence=placeholder_confidence)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            print(f"Error in ask_command: {e}")
+            embed = HUDComponents.create_error_embed(
+                "ASK ERROR",
+                "An error occurred while trying to process your question."
+            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.app_commands.checks.cooldown(1, 15.0, key=lambda i: i.user.id)
+    @discord.app_commands.command(name="summarize", description="Summarize channel activity")
+    @discord.app_commands.describe(
+        timeframe="Timeframe to summarize (e.g., 1h, 6h, 1d, 1w)",
+        channel="Optional channel to summarize (defaults to current channel if in guild)"
+    )
+    @discord.app_commands.choices(timeframe=[
+        discord.app_commands.Choice(name="Last Hour", value="1h"),
+        discord.app_commands.Choice(name="Last 6 Hours", value="6h"),
+        discord.app_commands.Choice(name="Last Day", value="1d"),
+        discord.app_commands.Choice(name="Last Week", value="1w"),
+    ])
+    async def summarize_command(self, interaction: discord.Interaction, timeframe: str, channel: discord.TextChannel = None):
+        """Summarizes channel activity over a given timeframe."""
+        try:
+            target_channel = channel if channel else interaction.channel
+            if interaction.guild is None and channel is None:
+                await interaction.response.send_message("Please specify a channel when using this command in DMs.", ephemeral=True)
+                return
+
+            # Placeholder for time-based summary generation logic
+            # Placeholder for channel-specific summarization (using target_channel.id)
+            # Placeholder for LLM for extracting key points and action items
+
+            # embed = HUDComponents.create_simple_info_embed(
+            #     "Summarize Under Development",
+            #     f"Summarize functionality for {target_channel.mention if target_channel else 'the specified channel'} over {timeframe} is currently under development.",
+            #     []
+            # )
+            placeholder_summary_text = f"This is a placeholder summary for the last {timeframe}. Key events include discussions on resource allocation and weather updates."
+            placeholder_key_points = ["Resource allocation debated.", "Weather patterns analyzed.", "New incident reported."]
+            placeholder_action_items = ["Follow up on budget request.", "Monitor weather changes for next OP."]
+
+            if timeframe == "1h": # Test case for no key points/action items
+                placeholder_key_points = []
+                placeholder_action_items = []
+
+            embed = HUDComponents.create_summary_embed(
+                timeframe,
+                placeholder_summary_text,
+                key_points=placeholder_key_points,
+                action_items=placeholder_action_items,
+                channel_name=target_channel.name if target_channel else None
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            print(f"Error in summarize_command: {e}")
+            embed = HUDComponents.create_error_embed(
+                "SUMMARIZE ERROR",
+                "An error occurred while trying to generate the summary."
+            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(embed=embed, ephemeral=True)
         
     async def _create_dispatch_message(self, user_id) -> discord.Embed:
         """Create HUD-style embed for initial dispatch."""

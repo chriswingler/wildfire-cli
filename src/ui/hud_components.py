@@ -146,6 +146,61 @@ class HUDComponents:
         )
         
         return embed
+
+    @staticmethod
+    def create_search_results_embed(query: str, results: list) -> discord.Embed:
+        """Create embed for search results."""
+        embed = discord.Embed(
+            title="🔎 SEARCH RESULTS",
+            description=f"Showing results for: `{query}`",
+            color=HUDColors.INFO,
+            timestamp=datetime.now()
+        )
+        if results:
+            for i, result_text in enumerate(results):
+                embed.add_field(name=f"📄 Result {i+1}", value=str(result_text)[:1020] + "..." if len(str(result_text)) > 1024 else str(result_text) , inline=False)
+        else:
+            embed.add_field(name="📭 NO RESULTS", value="No results found for your query.", inline=False)
+        return embed
+
+    @staticmethod
+    def create_ask_response_embed(question: str, answer: str, sources: list = None, confidence: float = None) -> discord.Embed:
+        """Create embed for LLM ask response."""
+        embed = discord.Embed(
+            title="💡 ASK RESPONSE",
+            description=f"Question: `{question}`",
+            color=HUDColors.PRIMARY,
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="💬 ANSWER", value=str(answer)[:1020] + "..." if len(str(answer)) > 1024 else str(answer), inline=False)
+        if sources:
+            source_text = "\n".join(f"- {s}" for s in sources)
+            embed.add_field(name="📚 SOURCES", value=source_text, inline=False)
+        if confidence is not None:
+            embed.add_field(name="🎯 CONFIDENCE", value=f"{confidence:.0%}", inline=True)
+        return embed
+
+    @staticmethod
+    def create_summary_embed(timeframe: str, summary_text: str, key_points: list = None, action_items: list = None, channel_name: str = None) -> discord.Embed:
+        """Create embed for channel summary."""
+        description = f"Summary for the last `{timeframe}`"
+        if channel_name:
+            description += f" in `#{channel_name}`"
+
+        embed = discord.Embed(
+            title="📋 SUMMARY",
+            description=description,
+            color=HUDColors.SECONDARY,
+            timestamp=datetime.now()
+        )
+        embed.add_field(name="📝 SUMMARY", value=str(summary_text)[:1020] + "..." if len(str(summary_text)) > 1024 else str(summary_text), inline=False)
+        if key_points:
+            key_points_text = "\n".join(f"- {kp}" for kp in key_points)
+            embed.add_field(name="🔑 KEY POINTS", value=key_points_text, inline=False)
+        if action_items:
+            action_items_text = "\n".join(f"- {ai}" for ai in action_items)
+            embed.add_field(name="📌 ACTION ITEMS", value=action_items_text, inline=False)
+        return embed
     
     @staticmethod
     def create_incident_embed(incident_name: str, fire_data: Dict[str, Any], fire_grid=None) -> discord.Embed:
