@@ -1,0 +1,68 @@
+name: 🚀 Deploy to Staging
+
+on:
+  push:
+    branches:
+      - main # Trigger deployment when changes are pushed to main
+
+permissions:
+  contents: read # To checkout the code
+
+jobs:
+  deploy_staging:
+    name: Deploy to Staging Environment
+    runs-on: ubuntu-latest
+    environment: # Optional: Define a GitHub Environment for staging
+      name: staging
+      url: ${{ steps.get_app_url.outputs.url }} # Placeholder for actual app URL
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} # Requires secret to be set in GitHub
+
+      - name: Save App Spec to file # Ensures the spec from the repo is used
+        run: |
+          cat .do/app-staging.yaml > app-staging-spec.yaml
+        # This step is important if we want to use the spec from the commit that triggered the workflow.
+        # Alternatively, if the app is configured to auto-deploy from 'main',
+        # this workflow might just be for notifications or other pre/post steps.
+        # For this task, we assume we are explicitly updating the app with a spec.
+
+      - name: Update DigitalOcean App
+        id: update_app
+        run: |
+          # The STAGING_APP_ID needs to be set as a GitHub secret or variable.
+          # For now, this is a placeholder. The user must provide this.
+          STAGING_APP_ID="${{ secrets.STAGING_APP_ID }}" # Or vars.STAGING_APP_ID
+
+          if [ -z "$STAGING_APP_ID" ]; then
+            echo "::error::STAGING_APP_ID is not set. Cannot deploy to staging."
+            exit 1
+          fi
+
+          echo "Attempting to update app: $STAGING_APP_ID with spec file app-staging-spec.yaml"
+          doctl apps update $STAGING_APP_ID --spec app-staging-spec.yaml --wait
+          echo "App update command issued."
+        # If the app doesn't exist, `doctl apps update` might fail.
+        # A more robust script would use `doctl apps get $STAGING_APP_ID` to check existence,
+        # then `doctl apps create --spec .do/app-staging.yaml` or `update`.
+        # For now, keeping it simple and assuming the app exists.
+
+      - name: Get Staging App URL
+        id: get_app_url
+        if: success() && steps.update_app.outcome == 'success'
+        run: |
+          STAGING_APP_ID="${{ secrets.STAGING_APP_ID }}"
+          APP_URL=$(doctl apps get $STAGING_APP_ID --format LiveUrl --no-header)
+          echo "Staging App URL: $APP_URL"
+          echo "::set-output name=url::$APP_URL"
+
+          # Post a comment to the commit if in a repo context
+          # This part is a bit more complex as it needs commit SHA etc.
+          # For now, just echoing the URL.
+          # Consider using an action like `peter-evans/commit-comment` for this.

@@ -29,8 +29,66 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 black mypy bandit safety
+          pip install flake8 black mypy bandit safety xmltodict # Added xmltodict
+          # Ensure pytest and pytest-cov are installed for coverage check
+          pip install pytest pytest-cov
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run tests and collect coverage
+        id: run_tests
+        run: |
+          pytest --cov=src --cov-report=xml tests/
+        # Continue on error so subsequent steps like coverage check can run if tests fail
+        # The overall job will still fail if tests fail.
+        continue-on-error: true
+
+      - name: Check code coverage
+        id: coverage_check
+        if: always() # Run even if previous steps failed, to report coverage status
+        run: |
+          import xmltodict
+          import os
+
+          coverage_threshold = 20.0  # Percentage
+          coverage_file = "coverage.xml"
+          actual_coverage = 0.0
+          coverage_passed = False
+          summary = ""
+
+          if not os.path.exists(coverage_file):
+              summary = f"❌ **Code Coverage:** Failed! {coverage_file} not found."
+              print(f"::error::Coverage report {coverage_file} not found.")
+          else:
+              with open(coverage_file, 'r') as f:
+                  data = xmltodict.parse(f.read())
+
+              # Extract line rate from coverage.xml
+              # The exact path might vary slightly based on pytest-cov version, but 'coverage'.'packages'.'package'.'lines'.'line-rate' is common
+              try:
+                  line_rate_str = data['coverage']['packages']['package'][0]['lines']['@line-rate']
+                  # pytest-cov often stores this as a fraction (e.g., "0.8523")
+                  actual_coverage = float(line_rate_str) * 100
+              except Exception as e:
+                  summary = f"❌ **Code Coverage:** Failed! Could not parse coverage data from {coverage_file}. Error: {e}"
+                  print(f"::error::Could not parse coverage data from {coverage_file}. Error: {e}")
+
+              if actual_coverage >= coverage_threshold:
+                  coverage_passed = True
+                  summary = f"✅ **Code Coverage:** {actual_coverage:.2f}% (Threshold: >{coverage_threshold}%)"
+              else:
+                  summary = f"❌ **Code Coverage:** {actual_coverage:.2f}% - FAILED! (Threshold: >{coverage_threshold}%)"
+                  print(f"::error::Code coverage ({actual_coverage:.2f}%) is below the threshold of {coverage_threshold}%.")
+
+          print(f"Coverage summary: {summary}")
+          # Set output for use in later steps if needed
+          print(f"::set-output name=summary::{summary}")
+          print(f"::set-output name=passed::{str(coverage_passed).lower()}")
+
+          if not coverage_passed:
+            # This will make the step fail if coverage is too low
+            exit(1)
+        env:
+          PYTHONPATH: .:src # Ensure pytest can find modules
 
       - name: Check coding standards compliance
         uses: actions/github-script@v7
@@ -44,10 +102,26 @@ jobs:
             // Read our coding standards for reference
             const codingStandards = fs.readFileSync('./docs/coding_standards.md', 'utf8');
             
+            // Test and Coverage Information
+            const coverageSummary = "${{ steps.coverage_check.outputs.summary }}";
+            const testsPassed = "${{ steps.run_tests.outcome }}" === "success";
+            let testReport = `## 🧪 Test Results\n\n`;
+            if (testsPassed) {
+              testReport += `✅ **Tests:** All tests passed.\n`;
+            } else {
+              testReport += `❌ **Tests:** Some tests failed. Please review the test logs.\n`;
+            }
+            testReport += `${coverageSummary}\n\n`;
+
             let qualityReport = "## 🚦 Code Quality Gate Report\n\n";
+            qualityReport = testReport + qualityReport; // Add test and coverage info at the beginning
             qualityReport += `**Standards Reference**: [docs/coding_standards.md](https://github.com/chriswingler/wildfire-cli/blob/main/docs/coding_standards.md)\n\n`;
             
             let allPassed = true;
+            // Ensure overall failure if tests failed or coverage check failed at the start
+            if (!testsPassed || "${{ steps.coverage_check.outputs.passed }}" !== "true") {
+              allPassed = false;
+            }
             let issues = [];
             
             // 1. Code Formatting Check (Black)
@@ -114,6 +188,13 @@ jobs:
                   details: "No type errors found"
                 });
               }
+              // Add MyPy informational comment
+              issues.push({
+                tool: "MyPy (Type Checking)",
+                status: "ℹ️ INFO",
+                details: "Consider making MyPy checks stricter in the future (e.g., by removing --ignore-missing-imports or being more specific, or by adding `--disallow-untyped-defs`).",
+                fix: "Review MyPy documentation for stricter options like `--disallow-untyped-defs` or project-wide configuration."
+              });
             } catch (error) {
               console.log('MyPy check error:', error.message);
             }
@@ -203,6 +284,10 @@ jobs:
             qualityReport += `*Automated quality gate based on [docs/coding_standards.md](https://github.com/chriswingler/wildfire-cli/blob/main/docs/coding_standards.md)*`;
             
             // Create check run for quality gate
+            // Final check on allPassed before creating the check run
+            if (!testsPassed || "${{ steps.coverage_check.outputs.passed }}" !== "true") {
+              allPassed = false;
+            }
             await github.rest.checks.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
