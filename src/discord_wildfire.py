@@ -16,6 +16,7 @@ from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
 from config.settings import config
+from src.cogs.gamification_cog import GamificationCog # Added for Gamification
 
 
 class TeamTacticalChoicesView(discord.ui.View):
@@ -2248,4 +2249,5 @@ async def setup_wildfire_commands(bot):
     @details Context-aware commands for both DM and Guild modes
     """
     await bot.add_cog(WildfireCommands(bot))
-    print("🔥 Wildfire commands cog loaded - syncing will happen on ready")
+    await bot.add_cog(GamificationCog(bot)) # Added for Gamification
+    print("🔥 Wildfire and Gamification commands cogs loaded - syncing will happen on ready")
