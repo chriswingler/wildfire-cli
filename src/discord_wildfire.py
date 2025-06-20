@@ -16,6 +16,12 @@ from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
 from config.settings import config
+from src.analytics.engagement_tracker import track_message, track_reaction, track_voice_leave
+from src.analytics.metrics_calculator import get_activity_summary_period, get_daily_activity_summary, get_channel_popularity # get_daily_activity_summary might not be used directly if _parse_period_to_dates handles "today" for get_activity_summary_period
+from src.analytics.trend_analyzer import calculate_community_health_score, calculate_engagement_quality_score
+from datetime import datetime, timedelta, date # date was added
+import discord # Added for type hints
+from discord import app_commands # Added for slash commands
 
 
 class TeamTacticalChoicesView(discord.ui.View):
@@ -1014,6 +1020,7 @@ class WildfireCommands(commands.Cog):
         self.game = WildfireGame()
         self.singleplayer_game = SingleplayerGame()
         self.auto_progression_task = None
+        self.voice_join_times = {} # For analytics
 
         # Load admin user IDs for debug commands
         admin_ids_str = os.getenv("ADMIN_USER_IDS", "")
@@ -1090,12 +1097,27 @@ class WildfireCommands(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Handle typed tactical choices like '1', '2', '3'."""
-        # Ignore bot messages and guild messages
-        if message.author.bot or message.guild is not None:
+        """Handle typed tactical choices like '1', '2', '3' in DMs AND track guild messages for analytics."""
+
+        # Analytics Part for Guild Messages
+        if message.guild and not message.author.bot:
+            try:
+                db_path = self.bot.analytics_db_path
+                await track_message(
+                    db_path,
+                    str(message.guild.id),
+                    str(message.author.id),
+                    str(message.channel.id),
+                    message.created_at,
+                )
+            except Exception as e:
+                print(f"Analytics: Error tracking message: {e}")
+
+        # Original DM Logic for game commands
+        if message.author.bot or message.guild is not None: # This now correctly processes guild messages for analytics before returning
             return
             
-        # Check if user has active incident
+        # Check if user has active incident (DM game logic)
         user_state = self.singleplayer_game.get_user_state(message.author.id)
         if user_state["game_phase"] != "active":
             return
@@ -2249,3 +2271,314 @@ async def setup_wildfire_commands(bot):
     """
     await bot.add_cog(WildfireCommands(bot))
     print("🔥 Wildfire commands cog loaded - syncing will happen on ready")
+
+    # Helper method for parsing period strings
+    def _parse_period_to_dates(self, period_str: str = "today") -> tuple[str, str]:
+        today = date.today()
+        if period_str == "today":
+            start_date = today
+            end_date = today
+        elif period_str == "yesterday":
+            start_date = today - timedelta(days=1)
+            end_date = today - timedelta(days=1)
+        elif period_str == "last7days":
+            start_date = today - timedelta(days=6) # Includes today
+            end_date = today
+        elif period_str == "last30days":
+            start_date = today - timedelta(days=29) # Includes today
+            end_date = today
+        else: # Default to today
+            start_date = today
+            end_date = today
+        return start_date.isoformat(), end_date.isoformat()
+
+    # --- Analytics Slash Commands ---
+
+    @app_commands.command(name="guildstats", description="Shows server activity statistics.")
+    @app_commands.describe(period="Time period (e.g., today, yesterday, last7days, last30days)")
+    # @app_commands.checks.has_permissions(administrator=True) # Example permission check
+    async def guildstats_command(self, interaction: discord.Interaction, period: str = "today"):
+        if not interaction.guild:
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False) # Acknowledge interaction
+
+        try:
+            db_path = self.bot.analytics_db_path
+            start_date_str, end_date_str = self._parse_period_to_dates(period)
+
+            summary = await get_activity_summary_period(db_path, start_date_str, end_date_str)
+
+            embed = discord.Embed(
+                title=f"Server Activity: {period.capitalize()}",
+                color=HUDColors.INFO,
+                timestamp=datetime.utcnow()
+            )
+            embed.set_footer(text=f"Guild ID: {interaction.guild.id}")
+
+            embed.add_field(name=f"{HUDEmojis.MESSAGE} Total Messages", value=str(summary.get("total_messages", 0)), inline=True)
+            embed.add_field(name=f"{HUDEmojis.REACTION} Total Reactions", value=str(summary.get("total_reactions", 0)), inline=True)
+            embed.add_field(name=f"{HUDEmojis.VOICE} Total Voice Minutes", value=f"{summary.get('total_voice_minutes', 0.0):.2f}", inline=True)
+            embed.add_field(name=f"{HUDEmojis.USER} Unique Active Users", value=str(summary.get("unique_active_users", 0)), inline=True)
+
+            if start_date_str == end_date_str:
+                embed.description = f"Statistics for {start_date_str}."
+            else:
+                embed.description = f"Statistics from {start_date_str} to {end_date_str}."
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            print(f"Error in guildstats_command: {e}")
+            await interaction.followup.send("An error occurred while fetching server statistics.", ephemeral=True)
+
+    @app_commands.command(name="userstats", description="Shows activity statistics for a user.")
+    @app_commands.describe(user="The user to get stats for.", period="Time period (e.g., today, last7days)")
+    # @app_commands.checks.has_permissions(manage_guild=True) # Example permission
+    async def userstats_command(self, interaction: discord.Interaction, user: discord.User, period: str = "today"):
+        if not interaction.guild:
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False)
+
+        try:
+            db_path = self.bot.analytics_db_path
+            start_date_str, end_date_str = self._parse_period_to_dates(period)
+            guild_id_str = str(interaction.guild.id)
+            user_id_str = str(user.id)
+
+            query = """
+                SELECT SUM(message_count), SUM(reaction_count), SUM(voice_minutes)
+                FROM user_analytics
+                WHERE guild_id = ? AND user_id = ? AND date BETWEEN ? AND ?;
+            """
+            # Using the _execute_query helper from one of the analytics modules, or define one in WildfireCommands
+            # For now, assuming a local execute_query or direct aiosqlite usage.
+            # Simplified: we need to use aiosqlite directly here or add _execute_query to the cog.
+            # Let's opt to add a simplified _execute_query to the cog for analytics commands.
+
+            results = await self._execute_analytics_query(db_path, query, (guild_id_str, user_id_str, start_date_str, end_date_str))
+
+            msg_count = 0
+            react_count = 0
+            voice_mins = 0.0
+
+            if results and results[0]:
+                msg_count = results[0][0] or 0
+                react_count = results[0][1] or 0
+                voice_mins = float(results[0][2] or 0.0)
+
+            # Calculate engagement score using the end_date of the selected period
+            engagement_score = await calculate_engagement_quality_score(db_path, user_id_str, end_date_str, lookback_days=(date.fromisoformat(end_date_str) - date.fromisoformat(start_date_str)).days + 1)
+
+            embed = discord.Embed(
+                title=f"User Activity: {user.display_name}",
+                color=HUDColors.SUCCESS,
+                timestamp=datetime.utcnow()
+            )
+            embed.set_thumbnail(url=user.display_avatar.url)
+            embed.set_footer(text=f"User ID: {user.id} | Guild ID: {interaction.guild.id}")
+
+            if start_date_str == end_date_str:
+                embed.description = f"Statistics for {start_date_str}."
+            else:
+                embed.description = f"Statistics from {start_date_str} to {end_date_str}."
+
+            embed.add_field(name=f"{HUDEmojis.MESSAGE} Messages Sent", value=str(msg_count), inline=True)
+            embed.add_field(name=f"{HUDEmojis.REACTION} Reactions Added", value=str(react_count), inline=True)
+            embed.add_field(name=f"{HUDEmojis.VOICE} Voice Minutes", value=f"{voice_mins:.2f}", inline=True)
+            embed.add_field(name=f"{HUDEmojis.ENGAGEMENT} Engagement Score", value=f"{engagement_score:.2f}", inline=True)
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            print(f"Error in userstats_command: {e}")
+            await interaction.followup.send(f"An error occurred while fetching stats for {user.mention}.", ephemeral=True)
+
+    async def _execute_analytics_query(self, db_path: str, query: str, params: tuple = ()):
+        # A simplified query executor for analytics commands within the cog
+        # In a larger application, this might live in a shared DB utility class
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(query, params) as cursor:
+                return await cursor.fetchall()
+
+    @app_commands.command(name="channelstats", description="Shows activity statistics for a channel.")
+    @app_commands.describe(channel="The channel to get stats for.", period="Time period (e.g., today, last7days)")
+    # @app_commands.checks.has_permissions(manage_channels=True) # Example permission
+    async def channelstats_command(self, interaction: discord.Interaction, channel: discord.TextChannel, period: str = "today"):
+        if not interaction.guild:
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False)
+
+        try:
+            db_path = self.bot.analytics_db_path
+            start_date_str, end_date_str = self._parse_period_to_dates(period)
+            guild_id_str = str(interaction.guild.id)
+            channel_id_str = str(channel.id)
+
+            query = """
+                SELECT SUM(message_count), SUM(user_count)
+                FROM channel_analytics
+                WHERE guild_id = ? AND channel_id = ? AND date BETWEEN ? AND ?;
+            """
+            # user_count in channel_analytics is a delta, SUM(user_count) is not meaningful here.
+            # Let's get total messages and perhaps average or latest user_count if needed.
+            # For now, just total messages.
+            query_messages = """
+                SELECT SUM(message_count)
+                FROM channel_analytics
+                WHERE guild_id = ? AND channel_id = ? AND date BETWEEN ? AND ?;
+            """
+            results = await self._execute_analytics_query(db_path, query_messages, (guild_id_str, channel_id_str, start_date_str, end_date_str))
+
+            msg_count = 0
+            if results and results[0]:
+                msg_count = results[0][0] or 0
+
+            # For channel popularity (example, could be expanded)
+            # popularity_ranking = await get_channel_popularity(db_path, start_date_str, end_date_str, top_n=5)
+            # rank_str = "Not in top 5"
+            # for i, (ch_id, count) in enumerate(popularity_ranking):
+            #     if ch_id == channel_id_str:
+            #         rank_str = f"#{i+1} most active"
+            #         break
+
+            embed = discord.Embed(
+                title=f"Channel Activity: #{channel.name}",
+                color=HUDColors.WARNING,
+                timestamp=datetime.utcnow()
+            )
+            embed.set_footer(text=f"Channel ID: {channel.id} | Guild ID: {interaction.guild.id}")
+
+            if start_date_str == end_date_str:
+                embed.description = f"Statistics for {start_date_str}."
+            else:
+                embed.description = f"Statistics from {start_date_str} to {end_date_str}."
+
+            embed.add_field(name=f"{HUDEmojis.MESSAGE} Messages Sent", value=str(msg_count), inline=True)
+            # embed.add_field(name=f"{HUDEmojis.INFO} Activity Rank", value=rank_str, inline=True)
+            # User count in channel_analytics is a delta, so SUM is not directly useful.
+            # We might need a different query for "current users" or "peak users" if schema supported.
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            print(f"Error in channelstats_command: {e}")
+            await interaction.followup.send(f"An error occurred while fetching stats for {channel.mention}.", ephemeral=True)
+
+    @app_commands.command(name="communityhealth", description="Displays the current server health score.")
+    # @app_commands.checks.has_permissions(administrator=True) # Example permission
+    async def communityhealth_command(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=False)
+
+        try:
+            db_path = self.bot.analytics_db_path
+            today_str = date.today().isoformat()
+            guild_id_str = str(interaction.guild.id)
+
+            score = await calculate_community_health_score(db_path, guild_id_str, today_str, lookback_days=30) # Default 30 day lookback
+
+            health_emoji = HUDEmojis.SUCCESS if score >= 70 else HUDEmojis.WARNING if score >= 40 else HUDEmojis.CRITICAL
+            health_color = HUDColors.SUCCESS if score >= 70 else HUDColors.WARNING if score >= 40 else HUDColors.DANGER
+
+            health_desc = "Excellent"
+            if score < 70: health_desc = "Fair"
+            if score < 40: health_desc = "Needs Improvement"
+
+
+            embed = discord.Embed(
+                title=f"{health_emoji} Community Health Score: {score:.2f}/100",
+                description=f"Overall health: **{health_desc}** (based on activity in the last 30 days).",
+                color=health_color,
+                timestamp=datetime.utcnow()
+            )
+            embed.set_footer(text=f"Guild ID: {interaction.guild.id}")
+            embed.add_field(
+                name="What is this?",
+                value="This score reflects overall server engagement, activity levels, and member growth trends. Higher scores indicate a more active and healthy community.",
+                inline=False
+            )
+            await interaction.followup.send(embed=embed)
+
+        except Exception as e:
+            print(f"Error in communityhealth_command: {e}")
+            await interaction.followup.send("An error occurred while calculating community health.", ephemeral=True)
+
+
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        """Tracks reactions added to messages for analytics."""
+        if user.bot or not reaction.message.guild:
+            return
+
+        try:
+            db_path = self.bot.analytics_db_path
+            # discord.py uses utcnow() for most timestamps if specific one isn't available
+            # reaction.created_at doesn't exist, so we use current time.
+            await track_reaction(
+                db_path,
+                str(reaction.message.guild.id),
+                str(user.id),
+                str(reaction.message.channel.id),
+                datetime.utcnow(), # Using utcnow as reaction objects don't have a created_at
+            )
+        except Exception as e:
+            print(f"Analytics: Error tracking reaction: {e}")
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        """Tracks voice channel joins and leaves for analytics."""
+        if member.bot or not member.guild:
+            return
+
+        db_path = self.bot.analytics_db_path
+        guild_id_str = str(member.guild.id)
+        user_id_str = str(member.id)
+        current_time = datetime.utcnow()
+
+        # User joins a voice channel or moves to a new one
+        if (before.channel is None and after.channel is not None) or \
+           (before.channel is not None and after.channel is not None and before.channel.id != after.channel.id):
+
+            # If user moved from another channel, record leave for the old channel first
+            if before.channel is not None and user_id_str in self.voice_join_times:
+                join_time = self.voice_join_times.pop(user_id_str)
+                # channel_id_left = str(before.channel.id) # Not needed for track_voice_leave
+                try:
+                    await track_voice_leave(
+                        db_path, guild_id_str, user_id_str, join_time, current_time
+                    )
+                except Exception as e:
+                    print(f"Analytics: Error tracking voice leave (on move): {e}")
+
+            # Store new join time for the current/new channel
+            self.voice_join_times[user_id_str] = current_time
+            # track_voice_join from engagement_tracker is mostly a conceptual placeholder
+            # for logic that would happen here if we needed to record join event itself.
+            # For now, just printing as in the original engagement_tracker.py spec.
+            if after.channel: # Ensure after.channel is not None
+                print(f"Analytics: User {user_id_str} joined voice channel {after.channel.id} in guild {guild_id_str} at {current_time}")
+
+
+        # User leaves a voice channel (completely, not just moving)
+        elif before.channel is not None and after.channel is None:
+            if user_id_str in self.voice_join_times:
+                join_time = self.voice_join_times.pop(user_id_str)
+                # channel_id_left = str(before.channel.id) # Not needed for track_voice_leave
+                try:
+                    await track_voice_leave(
+                        db_path, guild_id_str, user_id_str, join_time, current_time
+                    )
+                except Exception as e:
+                    print(f"Analytics: Error tracking voice leave: {e}")
+            else:
+                # User may have been in voice when bot started, so no join time recorded
+                print(f"Analytics: User {user_id_str} left voice channel {before.channel.id} but no join time was recorded (possibly joined before bot was ready).")
