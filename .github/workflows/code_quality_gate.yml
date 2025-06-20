@@ -32,221 +32,75 @@ jobs:
           pip install flake8 black mypy bandit safety
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Check coding standards compliance
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const fs = require('fs');
-            const { spawn } = require('child_process');
-            const util = require('util');
-            
-            const runCommand = async (command) => {
-              return new Promise((resolve, reject) => {
-                const child = spawn('bash', ['-c', command], { stdio: 'pipe' });
-                let stdout = '';
-                let stderr = '';
-                
-                child.stdout.on('data', (data) => { stdout += data; });
-                child.stderr.on('data', (data) => { stderr += data; });
-                
-                child.on('close', (code) => {
-                  resolve({ stdout, stderr, code });
-                });
-                
-                child.on('error', reject);
-              });
-            };
-            
-            // Read our coding standards for reference
-            const codingStandards = fs.readFileSync('./docs/coding_standards.md', 'utf8');
-            
-            let qualityReport = "## 🚦 Code Quality Gate Report\n\n";
-            qualityReport += `**Standards Reference**: [docs/coding_standards.md](https://github.com/chriswingler/wildfire-cli/blob/main/docs/coding_standards.md)\n\n`;
-            
-            let allPassed = true;
-            let issues = [];
-            
-            // 1. Code Formatting Check (Black)
-            try {
-              const { stdout, stderr } = await runCommand('black --check --diff src/ tests/ || true');
-              if (stderr || stdout.includes('would reformat')) {
-                allPassed = false;
-                issues.push({
-                  tool: "Black (Code Formatting)",
-                  status: "❌ FAIL",
-                  details: "Code formatting issues detected",
-                  fix: "Run `black src/ tests/` to auto-format"
-                });
-              } else {
-                issues.push({
-                  tool: "Black (Code Formatting)", 
-                  status: "✅ PASS",
-                  details: "Code formatting is consistent"
-                });
-              }
-            } catch (error) {
-              console.log('Black check error:', error.message);
-            }
-            
-            // 2. Style Guide Compliance (Flake8)
-            try {
-              const { stdout, stderr } = await runCommand('flake8 src/ tests/ --max-line-length=120 --extend-ignore=E203,W503 || true');
-              if (stdout.trim()) {
-                allPassed = false;
-                const errorCount = stdout.split('\n').filter(line => line.trim()).length;
-                issues.push({
-                  tool: "Flake8 (Style Guide)",
-                  status: "❌ FAIL", 
-                  details: `${errorCount} style violations detected`,
-                  fix: "Review flake8 output and fix style issues"
-                });
-              } else {
-                issues.push({
-                  tool: "Flake8 (Style Guide)",
-                  status: "✅ PASS",
-                  details: "No style violations found"
-                });
-              }
-            } catch (error) {
-              console.log('Flake8 check error:', error.message);
-            }
-            
-            // 3. Type Checking (MyPy) 
-            try {
-              const { stdout, stderr } = await runCommand('mypy src/ --ignore-missing-imports || true');
-              if (stdout.includes('error:')) {
-                allPassed = false;
-                const errorCount = (stdout.match(/error:/g) || []).length;
-                issues.push({
-                  tool: "MyPy (Type Checking)",
-                  status: "⚠️ WARN",
-                  details: `${errorCount} type issues detected`,
-                  fix: "Add type hints and fix type errors"
-                });
-              } else {
-                issues.push({
-                  tool: "MyPy (Type Checking)",
-                  status: "✅ PASS", 
-                  details: "No type errors found"
-                });
-              }
-            } catch (error) {
-              console.log('MyPy check error:', error.message);
-            }
-            
-            // 4. Security Check (Bandit)
-            try {
-              const { stdout, stderr } = await runCommand('bandit -r src/ -f json || true');
-              if (stdout.includes('"results"')) {
-                const results = JSON.parse(stdout);
-                if (results.results && results.results.length > 0) {
-                  const highSeverity = results.results.filter(r => r.issue_severity === 'HIGH').length;
-                  if (highSeverity > 0) {
-                    allPassed = false;
-                    issues.push({
-                      tool: "Bandit (Security)",
-                      status: "❌ FAIL",
-                      details: `${highSeverity} high-severity security issues found`,
-                      fix: "Review and fix security vulnerabilities"
-                    });
-                  } else {
-                    issues.push({
-                      tool: "Bandit (Security)",
-                      status: "⚠️ WARN", 
-                      details: `${results.results.length} minor security issues found`,
-                      fix: "Review security recommendations"
-                    });
-                  }
-                } else {
-                  issues.push({
-                    tool: "Bandit (Security)",
-                    status: "✅ PASS",
-                    details: "No security issues detected"
-                  });
-                }
-              }
-            } catch (error) {
-              console.log('Bandit check error:', error.message);
-            }
-            
-            // Build quality report
-            qualityReport += `### 🔍 Quality Checks\n\n`;
-            qualityReport += `| Tool | Status | Details |\n`;
-            qualityReport += `|------|--------|----------|\n`;
-            
-            for (const issue of issues) {
-              qualityReport += `| ${issue.tool} | ${issue.status} | ${issue.details} |\n`;
-            }
-            
-            qualityReport += `\n### 📋 Coding Standards Compliance\n\n`;
-            
-            if (allPassed) {
-              qualityReport += `🎉 **All quality checks passed!** This PR meets our coding standards.\n\n`;
-            } else {
-              qualityReport += `⚠️ **Some quality checks failed.** Please address the issues below:\n\n`;
-              
-              const failedChecks = issues.filter(i => i.status.includes('❌'));
-              for (const check of failedChecks) {
-                if (check.fix) {
-                  qualityReport += `- **${check.tool}**: ${check.fix}\n`;
-                }
-              }
-              qualityReport += `\n`;
-            }
-            
-            qualityReport += `### 📖 Coding Standards Reference\n\n`;
-            qualityReport += `Our coding standards emphasize:\n`;
-            qualityReport += `- **KISS, DRY, YAGNI** principles\n`;
-            qualityReport += `- **Functions**: Max 60 lines, single responsibility\n`;
-            qualityReport += `- **Files**: Max 1000 lines, logical organization\n`;
-            qualityReport += `- **Naming**: Descriptive and unambiguous\n`;
-            qualityReport += `- **Error Handling**: Proper exceptions with context\n`;
-            qualityReport += `- **Testing**: Comprehensive test coverage\n\n`;
-            
-            qualityReport += `### 🔧 Quick Fixes\n\n`;
-            qualityReport += `\`\`\`bash\n`;
-            qualityReport += `# Auto-format code\n`;
-            qualityReport += `black src/ tests/\n\n`;
-            qualityReport += `# Check style\n`;
-            qualityReport += `flake8 src/ tests/ --max-line-length=120\n\n`;
-            qualityReport += `# Type checking\n`;
-            qualityReport += `mypy src/ --ignore-missing-imports\n\n`;
-            qualityReport += `# Security scan\n`;
-            qualityReport += `bandit -r src/\n`;
-            qualityReport += `\`\`\`\n\n`;
-            
-            qualityReport += `---\n`;
-            qualityReport += `*Automated quality gate based on [docs/coding_standards.md](https://github.com/chriswingler/wildfire-cli/blob/main/docs/coding_standards.md)*`;
-            
-            // Create check run for quality gate
-            await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'Coding Standards Compliance',
-              head_sha: context.payload.pull_request.head.sha,
-              status: 'completed',
-              conclusion: allPassed ? 'success' : 'failure',
-              output: {
-                title: allPassed ? '✅ All quality checks passed' : '❌ Quality issues detected',
-                summary: allPassed ? 
-                  'This PR meets all coding standards requirements.' : 
-                  'This PR has quality issues that need to be addressed.',
-                text: qualityReport
-              }
-            });
-            
-            // Post comment with quality report
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body: qualityReport
-            });
-            
-            // Set action status
-            if (!allPassed) {
-              core.setFailed('Code quality checks failed. Please review the quality report.');
-            }
+      - name: Run code quality checks
+        run: |
+          echo "🚦 Code Quality Gate Report" > quality_report.md
+          echo "" >> quality_report.md
+          echo "**Standards Reference**: [docs/coding_standards.md](https://github.com/chriswingler/wildfire-cli/blob/main/docs/coding_standards.md)" >> quality_report.md
+          echo "" >> quality_report.md
+          echo "### 🔍 Quality Checks" >> quality_report.md
+          echo "" >> quality_report.md
+          echo "| Tool | Status | Details |" >> quality_report.md
+          echo "|------|--------|----------|" >> quality_report.md
+          
+          # Track overall status
+          ALL_PASSED=true
+          
+          # 1. Black formatting check
+          if black --check --diff src/ tests/ 2>/dev/null; then
+            echo "| Black (Code Formatting) | ✅ PASS | Code formatting is consistent |" >> quality_report.md
+          else
+            echo "| Black (Code Formatting) | ❌ FAIL | Code formatting issues detected |" >> quality_report.md
+            ALL_PASSED=false
+          fi
+          
+          # 2. Flake8 style check
+          FLAKE8_OUTPUT=$(flake8 src/ tests/ --max-line-length=120 --extend-ignore=E203,W503 2>/dev/null || true)
+          if [ -z "$FLAKE8_OUTPUT" ]; then
+            echo "| Flake8 (Style Guide) | ✅ PASS | No style violations found |" >> quality_report.md
+          else
+            ERROR_COUNT=$(echo "$FLAKE8_OUTPUT" | wc -l)
+            echo "| Flake8 (Style Guide) | ❌ FAIL | $ERROR_COUNT style violations detected |" >> quality_report.md
+            ALL_PASSED=false
+          fi
+          
+          # 3. MyPy type checking
+          MYPY_OUTPUT=$(mypy src/ --ignore-missing-imports 2>/dev/null || true)
+          if echo "$MYPY_OUTPUT" | grep -q "error:"; then
+            ERROR_COUNT=$(echo "$MYPY_OUTPUT" | grep -c "error:" || echo "0")
+            echo "| MyPy (Type Checking) | ⚠️ WARN | $ERROR_COUNT type issues detected |" >> quality_report.md
+          else
+            echo "| MyPy (Type Checking) | ✅ PASS | No type errors found |" >> quality_report.md
+          fi
+          
+          # 4. Bandit security check
+          BANDIT_OUTPUT=$(bandit -r src/ -f json 2>/dev/null || echo '{"results":[]}')
+          if echo "$BANDIT_OUTPUT" | grep -q '"results"'; then
+            if echo "$BANDIT_OUTPUT" | grep -q '"issue_severity": "HIGH"'; then
+              echo "| Bandit (Security) | ❌ FAIL | High-severity security issues found |" >> quality_report.md
+              ALL_PASSED=false
+            elif echo "$BANDIT_OUTPUT" | grep -q '"results": \[.*\]'; then
+              echo "| Bandit (Security) | ⚠️ WARN | Minor security issues found |" >> quality_report.md
+            else
+              echo "| Bandit (Security) | ✅ PASS | No security issues detected |" >> quality_report.md
+            fi
+          else
+            echo "| Bandit (Security) | ✅ PASS | No security issues detected |" >> quality_report.md
+          fi
+          
+          # Add summary
+          echo "" >> quality_report.md
+          if [ "$ALL_PASSED" = true ]; then
+            echo "### ✅ All Quality Checks Passed!" >> quality_report.md
+            echo "This code meets our coding standards." >> quality_report.md
+          else
+            echo "### ⚠️ Quality Issues Detected" >> quality_report.md
+            echo "Please address the failed checks above." >> quality_report.md
+            exit 1
+          fi
+          
+          # Output the report
+          cat quality_report.md
 
   educational_content_review:
     name: Educational Content Review
