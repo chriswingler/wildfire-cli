@@ -1,0 +1,109 @@
+name: 🚀 Deploy to Production (Manual)
+
+on:
+  workflow_dispatch: # Manual trigger
+    inputs:
+      commit_sha:
+        description: 'Commit SHA to deploy (defaults to main branch HEAD)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read # To checkout the code
+
+jobs:
+  deploy_production:
+    name: Deploy to Production Environment
+    runs-on: ubuntu-latest
+    environment: # Optional: Define a GitHub Environment for production
+      name: production
+      url: ${{ steps.get_app_url.outputs.url }} # Placeholder for actual app URL
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.commit_sha || github.ref }} # Use input SHA or default to current ref
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} # Requires secret
+
+      - name: Deploy to DigitalOcean App Platform
+        id: deploy
+        run: |
+          PROD_APP_ID="${{ secrets.PRODUCTION_APP_ID }}" # Requires secret
+          if [ -z "$PROD_APP_ID" ]; then
+            echo "::error::PRODUCTION_APP_ID is not set. Cannot deploy."
+            exit 1
+          fi
+
+          echo "Deploying commit ${{ github.sha }} to Production App ID: $PROD_APP_ID using .do/app.yaml spec..."
+          # Assuming .do/app.yaml is the production spec
+          # The app needs to be configured to use the correct branch (e.g., main)
+          # The update command triggers a new deployment with the latest version of the spec from the repo
+          # or simply a redeploy of the specified branch if the spec is not provided.
+          # Forcing the use of the committed app.yaml:
+          cp .do/app.yaml app-prod-spec.yaml
+          doctl apps update $PROD_APP_ID --spec app-prod-spec.yaml --wait
+          echo "Deployment to App ID $PROD_APP_ID initiated."
+
+      - name: Smoke Tests
+        id: smoke_tests
+        if: success() && steps.deploy.outcome == 'success'
+        run: |
+          PROD_APP_ID="${{ secrets.PRODUCTION_APP_ID }}"
+          APP_URL=$(doctl apps get $PROD_APP_ID --format LiveUrl --no-header)
+          echo "Production App URL for smoke tests: $APP_URL"
+
+          # Placeholder for actual smoke tests
+          # For example, curl the app URL and check for a 200 OK
+          # response_code=$(curl -s -o /dev/null -w "%{http_code}" $APP_URL/health) # Assuming a /health endpoint
+          # if [ "$response_code" == "200" ]; then
+          #   echo "Smoke test passed: Received HTTP 200 from $APP_URL/health"
+          #   exit 0
+          # else
+          #   echo "::error::Smoke test failed: Received HTTP $response_code from $APP_URL/health"
+          #   exit 1
+          # fi
+          echo "Smoke tests would run here. For now, assuming they pass."
+          # To simulate a failure for testing rollback, uncomment next line:
+          # echo "::error::Simulating smoke test failure."; exit 1
+          exit 0
+
+      - name: Rollback on Failure
+        if: failure() && steps.smoke_tests.outcome == 'failure'
+        run: |
+          PROD_APP_ID="${{ secrets.PRODUCTION_APP_ID }}"
+          echo "::warning::Smoke tests failed. Initiating rollback for App ID $PROD_APP_ID..."
+          # This command attempts to rollback to the previous active deployment.
+          # It requires the app to have had previous successful deployments.
+          # doctl apps rollback $PROD_APP_ID --wait # The rollback command seems to be missing from doctl app, this was deprecated.
+          # The correct way is to list deployments and deploy a previous one by ID.
+
+          # Get list of previous deployments, find the one before current
+          DEPLOYMENTS_JSON=$(doctl apps list-deployments $PROD_APP_ID -o json)
+          PREVIOUS_DEPLOYMENT_ID=$(echo $DEPLOYMENTS_JSON | jq -r 'map(select(.phase == "ACTIVE")) | sort_by(.created_at) | .[-2].id') # Gets the second to last active deployment
+
+          if [ -z "$PREVIOUS_DEPLOYMENT_ID" ] || [ "$PREVIOUS_DEPLOYMENT_ID" == "null" ]; then
+            echo "::error::Could not find a previous active deployment to roll back to."
+            # Potentially send an alert here
+            exit 1
+          fi
+
+          echo "Rolling back to deployment ID: $PREVIOUS_DEPLOYMENT_ID"
+          doctl apps create-deployment $PROD_APP_ID --from-previous-deployment $PREVIOUS_DEPLOYMENT_ID --wait
+          echo "Rollback to deployment $PREVIOUS_DEPLOYMENT_ID initiated."
+          # Notify about rollback
+          # exit 1 # Ensure the job fails overall if rollback is triggered
+
+      - name: Get Production App URL
+        id: get_app_url
+        # Runs if smoke tests passed or if rollback was not triggered/failed
+        if: success() && (steps.smoke_tests.outcome == 'success' || steps.smoke_tests.outcome == 'skipped')
+        run: |
+          PROD_APP_ID="${{ secrets.PRODUCTION_APP_ID }}"
+          APP_URL=$(doctl apps get $PROD_APP_ID --format LiveUrl --no-header)
+          echo "Production App URL: $APP_URL"
+          echo "::set-output name=url::$APP_URL"
