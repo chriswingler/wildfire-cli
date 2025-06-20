@@ -15,13 +15,14 @@ from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
+from config.settings import config
 
 
 class TeamTacticalChoicesView(discord.ui.View):
     """Interactive button choices for team tactical decisions."""
     
     def __init__(self, game, fire_id, user_id):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=config.game.progression.button_timeout_seconds)  # 5 minute timeout
         self.game = game
         self.fire_id = fire_id
         self.user_id = user_id
@@ -105,7 +106,7 @@ class TeamTacticalChoicesView(discord.ui.View):
                     embed.add_field(
                         name=f"{HUDEmojis.CRITICAL} ║ FINAL TEAM STATUS",
                         value=f"```\n"
-                              f"Size:        {fire_status['fire_size_acres']:>6} acres (OVER 200 ACRES)\n"
+                              f"Size:        {fire_status['fire_size_acres']:>6} acres (OVER {config.game.thresholds.critical_failure_acres} ACRES)\n"
                               f"Containment: {fire_status['containment_percent']:>6}%\n"
                               f"Team Budget: ${fire_status['team_budget']:>6}k remaining\n"
                               f"```",
@@ -173,7 +174,7 @@ class TacticalChoicesView(discord.ui.View):
     """Interactive button choices for tactical decisions."""
     
     def __init__(self, singleplayer_game, user_id):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=config.game.progression.button_timeout_seconds)  # 5 minute timeout
         self.singleplayer_game = singleplayer_game
         self.user_id = user_id
     
@@ -240,7 +241,7 @@ class TacticalChoicesView(discord.ui.View):
                 # Check for mission accomplished (100% containment)
                 if stats['containment_percent'] >= 100:
                     # Mission accomplished! Award budget and start new fire
-                    bonus_budget = 8000  # Reward for successful containment
+                    bonus_budget = config.game.economy.bonus_amount  # Reward for successful containment
                     user_state["budget"] += bonus_budget
                     new_budget = user_state["budget"]
                     
@@ -528,7 +529,7 @@ class SingleplayerGame:
                 "operational_period": 1,
                 "last_update": datetime.now(),
                 "game_phase": "ready",  # ready, active, contained, completed
-                "budget": 20000,  # Starting resource budget in dollars
+                "budget": config.game.economy.starting_budget,  # Starting resource budget in dollars
                 "score": 0  # Performance score
             }
         return self.user_states[user_id]
@@ -550,7 +551,7 @@ class SingleplayerGame:
         user_state["last_update"] = datetime.now()
         user_state["next_progression"] = datetime.now() + timedelta(seconds=45)  # Auto-advance in 45 seconds
         user_state["resources_deployed"] = {"hand_crews": 1, "engines": 1, "air_tankers": 0, "dozers": 0}
-        user_state["budget"] = 20000  # Starting budget in dollars
+        user_state["budget"] = config.game.economy.starting_budget  # Starting budget in dollars
         user_state["performance_score"] = 100  # Performance rating
         user_state["actions_taken"] = 0
         
@@ -574,8 +575,16 @@ class SingleplayerGame:
         old_stats = user_state["fire_grid"].get_fire_statistics() if user_state["fire_grid"] else None
             
         # Resource costs - SPENDING dollars on resources (daily rates)
-        costs = {"hand_crews": 1800, "engines": 3200, "dozers": 4600, "air_tankers": 12000}
-        cost = costs.get(resource_type, 2) * count
+        configured_costs = {
+            "hand_crews": config.game.economy.resource_costs.hand_crews,
+            "engines": config.game.economy.resource_costs.engines,
+            "dozers": config.game.economy.resource_costs.dozers,
+            "air_tankers": config.game.economy.resource_costs.air_tankers
+        }
+        cost_for_resource = configured_costs.get(resource_type)
+        if cost_for_resource is None:
+            raise ValueError(f"Unknown resource type in SingleplayerGame.deploy_resources: {resource_type}")
+        cost = cost_for_resource * count
         
         if user_state["budget"] < cost:
             return {"success": False, "reason": "insufficient_budget", "cost": cost, "budget": user_state["budget"]}
@@ -666,7 +675,7 @@ class SingleplayerGame:
         # Check if fire is contained or critical
         if user_state["fire_grid"].is_contained():
             user_state["game_phase"] = "contained"
-        elif new_stats['fire_size_acres'] >= 200:
+        elif new_stats['fire_size_acres'] >= config.game.thresholds.critical_failure_acres:
             user_state["game_phase"] = "critical_failure"
             
         return {
@@ -683,13 +692,30 @@ class SingleplayerGame:
         
         # Get current fire and weather conditions
         stats = user_state["fire_grid"].get_fire_statistics()
-        fire_size = stats['fire_size_acres']
-        weather = stats['weather']
-        wind_speed = weather['wind_speed']
+        fire_size = stats['fire_size_acres'] # Retained for now, might be useful for other logic or future refinement
+        weather_dict = stats['weather']
+
+        # Determine weather_condition_str from weather_dict
+        weather_desc = weather_dict.get('weather_description', '').lower()
+        wind_speed = weather_dict.get('wind_speed', 0)
+        humidity = weather_dict.get('humidity', 75)
+
+        if "extreme dry spell" in weather_desc or "red flag" in weather_desc:
+            weather_condition_str = "red_flag"
+        elif "high wind" in weather_desc or "strong gusts" in weather_desc or wind_speed > 20:
+            weather_condition_str = "high_wind"
+        elif "extreme_dry" in weather_desc or humidity < 30: # Placeholder for explicit extreme_dry
+             weather_condition_str = "extreme_dry"
+        else:
+            weather_condition_str = "normal"
+
+        # Determine terrain_type_str (simplified placeholder)
+        # TODO: Implement proper dominant terrain calculation from fire_grid
+        terrain_type_str = "flat"
         
         # Calculate strategic effectiveness multiplier
         effectiveness = self._calculate_resource_effectiveness(
-            resource_type, fire_size, wind_speed, weather
+            resource_type, terrain_type_str, weather_condition_str
         )
         
         # Apply strategic suppression
@@ -710,46 +736,17 @@ class SingleplayerGame:
         }
         
         user_state["fire_grid"].apply_suppression(strategic_suppression)
-    
-    def _calculate_resource_effectiveness(self, resource_type, fire_size, wind_speed, weather):
-        """Calculate resource effectiveness based on conditions."""
-        effectiveness = 1.0  # Base effectiveness
+
+    def _calculate_resource_effectiveness(self, resource_type: str, terrain_type_str: str, weather_condition_str: str) -> float:
+        """Calculate resource effectiveness based on configured multipliers."""
+        base_eff = config.game.effectiveness.resource_effectiveness.get(resource_type, 1.0)
+        terrain_mult = config.game.effectiveness.terrain_multipliers.get(terrain_type_str, 1.0)
+        weather_mult = config.game.effectiveness.weather_impact.get(weather_condition_str, 1.0)
+
+        calculated_effectiveness = base_eff * terrain_mult * weather_mult
         
-        if resource_type == "hand_crews":
-            # Hand crews: Best for small fires and steep terrain
-            if fire_size <= 30:
-                effectiveness *= 1.5  # +50% on small fires
-            elif fire_size >= 80:
-                effectiveness *= 0.7  # -30% on large fires
-            # Always reliable regardless of weather
-            
-        elif resource_type == "air_tankers":
-            # Air support: Weather dependent, great for large fires
-            if wind_speed > 20:
-                effectiveness *= 0.3  # Grounded in high winds
-            elif wind_speed < 10:
-                effectiveness *= 1.3  # +30% in calm conditions
-                
-            if fire_size >= 50:
-                effectiveness *= 1.8  # +80% on large fires
-            elif fire_size <= 20:
-                effectiveness *= 0.6  # -40% on small fires (overkill)
-                
-        elif resource_type == "engines":
-            # Engines: Consistent, good for sustained attack
-            if fire_size >= 30 and fire_size <= 100:
-                effectiveness *= 1.4  # +40% in sweet spot
-            # Reliable in most weather conditions
-            
-        elif resource_type == "dozers":
-            # Dozers: Prevention specialists, terrain dependent
-            if fire_size <= 60:
-                effectiveness *= 1.6  # +60% for containment lines
-            else:
-                effectiveness *= 0.8  # Less effective once fire is large
-            # Weather independent
-        
-        return max(0.2, effectiveness)  # Minimum 20% effectiveness
+        final_effectiveness = max(0.2, calculated_effectiveness) # Keep the original minimum effectiveness floor
+        return final_effectiveness
         
     def advance_operational_period(self, user_id):
         """Advance to next operational period with fire progression."""
@@ -994,7 +991,7 @@ class WildfireGame:
         # Check if fire is contained or critical
         if fire["fire_grid"].is_contained():
             fire["status"] = "contained"
-        elif new_stats['fire_size_acres'] >= 200:
+        elif new_stats['fire_size_acres'] >= config.game.thresholds.critical_failure_acres:
             fire["status"] = "critical_failure"
             
         return {
@@ -2179,7 +2176,7 @@ Use `/stop` to see your performance report."""
         """Background task that automatically progresses fires and sends updates."""
         while True:
             try:
-                await asyncio.sleep(10)  # Check every 10 seconds
+                await asyncio.sleep(config.game.progression.auto_progression_seconds)  # Check every 10 seconds
                 
                 # Process singleplayer fires
                 for user_id, user_state in list(self.singleplayer_game.user_states.items()):

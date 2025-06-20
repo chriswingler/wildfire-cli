@@ -7,6 +7,7 @@
 import discord
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+from config.settings import config
 
 
 class HUDColors:
@@ -17,10 +18,10 @@ class HUDColors:
     SECONDARY = 0x36393F    # Slightly lighter gray for secondary elements
     
     # Status colors
-    CRITICAL = 0xFF4444     # Red - fires, emergencies, high threat
-    WARNING = 0xFFAA00      # Orange - moderate threats, warnings
-    SUCCESS = 0x44FF44      # Green - contained, success states
-    INFO = 0x4488FF         # Blue - general information, neutral
+    CRITICAL = config.discord.embed_color_codes.danger     # Red - fires, emergencies, high threat
+    WARNING = config.discord.embed_color_codes.warning      # Orange - moderate threats, warnings
+    SUCCESS = config.discord.embed_color_codes.success      # Green - contained, success states
+    INFO = config.discord.embed_color_codes.info         # Blue - general information, neutral
     
     # Accent colors
     ACCENT = 0xFF6B35       # Orange - key highlights, interactive elements
