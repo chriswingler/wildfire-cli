@@ -1,0 +1,46 @@
+# Game balance configuration for Wildfire CLI
+game:
+  economy:
+    starting_budget: 20000
+    bonus_amount: 8000
+    resource_costs:
+      hand_crews: 1800
+      engines: 3200
+      dozers: 4600
+      air_tankers: 12000
+
+  progression:
+    button_timeout_seconds: 300
+    auto_progression_seconds: 10 # Matches asyncio.sleep(10) in _auto_progression_loop
+    fire_size_range: # General guidance, specific effectiveness logic is more nuanced
+      min_acres: 30
+      max_acres: 100
+
+  thresholds:
+    critical_failure_acres: 200
+    containment_success_percent: 95 # Assuming 100% is actual success, this could be a target
+    resource_effectiveness_base: 1.0 # General base, can be overridden by specific resources
+
+  effectiveness:
+    terrain_multipliers:
+      flat: 1.0
+      hilly: 0.8
+      mountainous: 0.6
+    weather_impact:
+      normal: 1.0 # e.g. calm winds, normal humidity
+      high_wind: 0.7 # e.g. affects air tankers
+      extreme_dry: 0.5 # e.g. increases fire spread, reduces suppression effectiveness
+      red_flag: 0.4 # More severe weather conditions
+    resource_effectiveness: # Base effectiveness before terrain/weather
+      hand_crews: 1.0
+      engines: 1.2
+      dozers: 1.5
+      air_tankers: 2.0
+
+discord:
+  interaction_timeout: 300 # Corresponds to button_timeout_seconds for views
+  embed_color_codes:
+    success: 0x00ff00
+    warning: 0xffaa00
+    danger: 0xff0000
+    info: 0x0099ff

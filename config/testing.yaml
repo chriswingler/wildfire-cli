@@ -1,0 +1,25 @@
+# Predictable values for unit tests
+game:
+  economy:
+    starting_budget: 10000      # Fixed values for test assertions
+    bonus_amount: 1000
+    resource_costs:
+      hand_crews: 100           # Simple math for testing
+      engines: 200
+      dozers: 300
+      air_tankers: 400
+  effectiveness:
+    terrain_multipliers:
+      flat: 1.0                 # No variation for predictable tests
+      hilly: 1.0
+      mountainous: 1.0
+    weather_impact:
+      normal: 1.0
+      high_wind: 1.0 # No variation for predictable tests
+      extreme_dry: 1.0
+      red_flag: 1.0
+    resource_effectiveness:
+      hand_crews: 1.0
+      engines: 1.0 # No variation
+      dozers: 1.0
+      air_tankers: 1.0

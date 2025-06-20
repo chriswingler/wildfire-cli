@@ -15,13 +15,14 @@ from fire_engine import FireGrid, WeatherConditions
 from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
+from config.settings import config
 
 
 class TeamTacticalChoicesView(discord.ui.View):
     """Interactive button choices for team tactical decisions."""
     
     def __init__(self, game, fire_id, user_id):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=config.game.progression.button_timeout_seconds)  # 5 minute timeout
         self.game = game
         self.fire_id = fire_id
         self.user_id = user_id
@@ -173,7 +174,7 @@ class TacticalChoicesView(discord.ui.View):
     """Interactive button choices for tactical decisions."""
     
     def __init__(self, singleplayer_game, user_id):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=config.game.progression.button_timeout_seconds)  # 5 minute timeout
         self.singleplayer_game = singleplayer_game
         self.user_id = user_id
     
@@ -240,7 +241,7 @@ class TacticalChoicesView(discord.ui.View):
                 # Check for mission accomplished (100% containment)
                 if stats['containment_percent'] >= 100:
                     # Mission accomplished! Award budget and start new fire
-                    bonus_budget = 8000  # Reward for successful containment
+                    bonus_budget = config.game.economy.bonus_amount  # Reward for successful containment
                     user_state["budget"] += bonus_budget
                     new_budget = user_state["budget"]
                     
@@ -528,7 +529,7 @@ class SingleplayerGame:
                 "operational_period": 1,
                 "last_update": datetime.now(),
                 "game_phase": "ready",  # ready, active, contained, completed
-                "budget": 20000,  # Starting resource budget in dollars
+                "budget": config.game.economy.starting_budget,  # Starting resource budget in dollars
                 "score": 0  # Performance score
             }
         return self.user_states[user_id]
@@ -550,7 +551,7 @@ class SingleplayerGame:
         user_state["last_update"] = datetime.now()
         user_state["next_progression"] = datetime.now() + timedelta(seconds=45)  # Auto-advance in 45 seconds
         user_state["resources_deployed"] = {"hand_crews": 1, "engines": 1, "air_tankers": 0, "dozers": 0}
-        user_state["budget"] = 20000  # Starting budget in dollars
+        user_state["budget"] = config.game.economy.starting_budget  # Starting budget in dollars
         user_state["performance_score"] = 100  # Performance rating
         user_state["actions_taken"] = 0
         
@@ -574,8 +575,16 @@ class SingleplayerGame:
         old_stats = user_state["fire_grid"].get_fire_statistics() if user_state["fire_grid"] else None
             
         # Resource costs - SPENDING dollars on resources (daily rates)
-        costs = {"hand_crews": 1800, "engines": 3200, "dozers": 4600, "air_tankers": 12000}
-        cost = costs.get(resource_type, 2) * count
+        configured_costs = {
+            "hand_crews": config.game.economy.resource_costs.hand_crews,
+            "engines": config.game.economy.resource_costs.engines,
+            "dozers": config.game.economy.resource_costs.dozers,
+            "air_tankers": config.game.economy.resource_costs.air_tankers
+        }
+        cost_for_resource = configured_costs.get(resource_type)
+        if cost_for_resource is None:
+            raise ValueError(f"Unknown resource type in SingleplayerGame.deploy_resources: {resource_type}")
+        cost = cost_for_resource * count
         
         if user_state["budget"] < cost:
             return {"success": False, "reason": "insufficient_budget", "cost": cost, "budget": user_state["budget"]}
