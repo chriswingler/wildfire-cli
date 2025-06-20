@@ -25,6 +25,12 @@ COPY .env.example ./
 # Create directory for SQLite database
 RUN mkdir -p /app/data
 
+# Create a non-root user and group
+RUN groupadd -r appgroup && useradd -r -g appgroup -d /app -s /sbin/nologin -c "Docker image user" appuser
+
+# Change ownership of the app directory
+RUN chown -R appuser:appgroup /app
+
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
@@ -33,8 +39,10 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sqlite3; sqlite3.connect('/app/data/wildfire_game.db').close()" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD python -c "import sqlite3; db = sqlite3.connect('/app/wildfire_game.db'); db.execute('SELECT count(*) FROM fires'); db.close()" || exit 1
+
+# Switch to non-root user
+USER appuser
 
 # Run the Discord bot
 CMD ["python", "src/main.py"]
