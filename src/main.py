@@ -13,6 +13,8 @@ import asyncio
 import os
 import logging
 from discord_wildfire import setup_wildfire_commands
+from src.database.analytics_db import init_analytics_db
+from src.config.settings import ANALYTICS_DB_PATH
 from aiohttp import web
 
 load_dotenv()
@@ -27,6 +29,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot.analytics_db_path = ANALYTICS_DB_PATH
 
 
 async def health_check(request):
@@ -54,6 +57,9 @@ async def main():
     - Health check server for DigitalOcean
     - Event loop management
     """
+    # Initialize the analytics database
+    await init_analytics_db(ANALYTICS_DB_PATH)
+
     # Setup Discord bot with Sprint 2 singleplayer mode
     await setup_wildfire_commands(bot)
     

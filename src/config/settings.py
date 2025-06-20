@@ -4,6 +4,9 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Union
 from pathlib import Path
 
+# Path for the analytics database
+ANALYTICS_DB_PATH = "./data/analytics.db"
+
 @dataclass
 class ResourceCosts:
     hand_crews: int
