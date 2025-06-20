@@ -765,7 +765,8 @@ class WildfireGame:
         weather = WeatherConditions()  # Generates random weather automatically
         
         fire_grid = FireGrid()
-        fire_grid.initialize_random_fire(weather)
+        fire_grid.weather = weather  # Set the weather conditions
+        fire_grid.start_fire("moderate")  # Start with moderate intensity fire
         
         fire_data = {
             "id": fire_id,
