@@ -37,9 +37,9 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const { exec: execSync } = require('child_process');
+            const childProcess = require('child_process');
             const util = require('util');
-            const execAsync = util.promisify(execSync);
+            const execAsync = util.promisify(childProcess.exec);
             
             // Read our coding standards for reference
             const codingStandards = fs.readFileSync('./docs/coding_standards.md', 'utf8');
