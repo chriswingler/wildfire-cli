@@ -1,7 +1,16 @@
 """
-@file commands.py
-@brief Wildfire Discord game command handler
-@details Simplified from BlazeBot, focused on wildfire MMORPG functionality
+Wildfire Discord Game Command Handler
+=====================================
+
+This module provides the core command handling for the Wildfire Discord game,
+a simplified MMORPG focused on wildfire response scenarios. It includes game logic
+management, database interaction for persisting game state, and Discord bot command
+registration using `discord.py`.
+
+The primary components are:
+  - ``WildfireGame``: Manages game state, fire creation, responder assignment, and database operations.
+  - ``WildfireCommands``: A Discord Cog that groups related commands and event listeners.
+  - ``setup``: Function to initialize and add the Cog and application commands to the bot.
 """
 
 import discord
@@ -20,16 +29,30 @@ from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 
 class WildfireGame:
     """
-    @brief Core wildfire game logic with database persistence
-    @details Simple implementation following coding standards
+    Manages the core game logic and database interactions for wildfire incidents.
+
+    This class is responsible for creating and tracking fires, assigning responders,
+    and persisting game state to an SQLite database. It handles the underlying
+    mechanics of the wildfire simulation.
     """
     
-    def __init__(self, db_path="wildfire_game.db"):
+    def __init__(self, db_path: str = "wildfire_game.db"):
+        """
+        Initializes the WildfireGame instance.
+
+        :param db_path: Path to the SQLite database file.
+        :type db_path: str
+        """
         self.db_path = db_path
-        self.active_fires = {}
+        self.active_fires = {}  # In-memory cache, though primary state is in DB
         
     async def init_database(self):
-        """Initialize SQLite database for game state."""
+        """
+        Initializes the SQLite database and creates necessary tables if they don't exist.
+
+        This method sets up the `fires` and `responders` tables required for game operation.
+        It should be called once when the game system starts.
+        """
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS fires (
@@ -59,8 +82,20 @@ class WildfireGame:
             
             await db.commit()
             
-    async def create_fire(self, server_id, channel_id):
-        """Create new fire incident."""
+    async def create_fire(self, server_id: int, channel_id: int) -> dict:
+        """
+        Creates a new wildfire incident in the specified server and channel.
+
+        The fire details (type, size, threat level) are randomly generated.
+        The new fire is stored in the database and basic information is returned.
+
+        :param server_id: The Discord server ID where the fire is created.
+        :type server_id: int
+        :param channel_id: The Discord channel ID where the fire is created.
+        :type channel_id: int
+        :return: A dictionary containing the details of the created fire.
+        :rtype: dict
+        """
         fire_id = f"fire_{int(time.time())}"
         fire_types = ["grass", "forest", "interface"]
         fire_type = random.choice(fire_types)
@@ -89,8 +124,23 @@ class WildfireGame:
             
         return fire_data
         
-    async def assign_responder(self, fire_id, user_id, user_name):
-        """Assign player to fire incident."""
+    async def assign_responder(self, fire_id: str, user_id: int, user_name: str) -> bool:
+        """
+        Assigns a player (responder) to an active fire incident.
+
+        Stores the responder's information in the database, linking them to the specified fire.
+        If the responder is already assigned, this operation might be ignored by the DB
+        due to 'INSERT OR IGNORE'.
+
+        :param fire_id: The ID of the fire to assign the responder to.
+        :type fire_id: str
+        :param user_id: The Discord user ID of the responder.
+        :type user_id: int
+        :param user_name: The display name of the responder.
+        :type user_name: str
+        :return: True if the assignment was attempted (database will handle uniqueness).
+        :rtype: bool
+        """
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute('''
                 INSERT OR IGNORE INTO responders (fire_id, user_id, user_name, role, assigned_at)
@@ -99,8 +149,20 @@ class WildfireGame:
             await db.commit()
             return True
             
-    async def get_active_fires(self, server_id):
-        """Get active fires for a server."""
+    async def get_active_fires(self, server_id: int) -> list[dict]:
+        """
+        Retrieves a list of all active fires for a given server.
+
+        This method queries the database for fires with 'active' status.
+        It also calculates the current containment level based on the number of responders
+        and updates the fire's status to 'contained' if 100% containment is reached.
+
+        :param server_id: The Discord server ID for which to retrieve active fires.
+        :type server_id: int
+        :return: A list of dictionaries, where each dictionary represents an active fire
+                 and includes its details and responder count.
+        :rtype: list[dict]
+        """
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute('''
                 SELECT * FROM fires WHERE server_id = ? AND status = 'active'
@@ -114,9 +176,14 @@ class WildfireGame:
                 ''', (fire[0],)) as cursor:
                     responder_count = (await cursor.fetchone())[0]
                     
-                # Simple containment progression
-                containment = min(fire[5] + (responder_count * 10), 100)
+                # Simplified containment progression logic for database-tracked fires.
+                # This is distinct from the more complex simulation in fire_engine.py.
+                # Each responder contributes a fixed amount (e.g., 10%) to containment.
+                # The fire's original containment value is fire[5].
+                current_db_containment = fire[5]
+                containment = min(current_db_containment + (responder_count * 10), 100)
                 
+                # If containment reaches 100%, update the fire's status in the database.
                 if containment >= 100:
                     await db.execute('''
                         UPDATE fires SET status = 'contained' WHERE id = ?
@@ -137,21 +204,44 @@ class WildfireGame:
 
 class WildfireCommands(commands.Cog):
     """
-    @brief Discord commands for wildfire MMORPG
-    @details Simplified command structure focused on game functionality
+    A Discord Cog for handling wildfire MMORPG commands and related events.
+
+    This class groups game-specific commands, event listeners (like `on_ready`),
+    and utility functions. It uses an instance of `WildfireGame` to interact
+    with the game logic and database.
     """
     
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
+        """
+        Initializes the WildfireCommands Cog.
+
+        :param bot: The Discord bot instance.
+        :type bot: commands.Bot
+        """
         self.bot = bot
         self.game = WildfireGame()
         self.cooldown = CooldownManager()
         
     async def cog_load(self):
-        """Initialize game database when cog loads."""
+        """
+        Asynchronous setup that runs when the Cog is loaded.
+
+        This method ensures the game database is initialized.
+        """
         await self.game.init_database()
         
-    async def add_safe_reaction(self, message, emoji):
-        """Safely add reactions with rate limit handling."""
+    async def add_safe_reaction(self, message: discord.Message, emoji: str):
+        """
+        Safely adds a reaction to a message, handling potential rate limits.
+
+        If a rate limit (HTTP 429) is encountered, it will wait for the specified
+        `Retry-After` duration and attempt to add the reaction again.
+
+        :param message: The Discord message object to react to.
+        :type message: discord.Message
+        :param emoji: The emoji to use for the reaction.
+        :type emoji: str
+        """
         try:
             if self.cooldown.check_reaction(message):
                 await message.add_reaction(emoji)
@@ -166,7 +256,13 @@ class WildfireCommands(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Bot startup handler."""
+        """
+        Event listener triggered when the bot is ready and connected to Discord.
+
+        Sets the bot's presence (status) and syncs application commands
+        to all connected guilds. It logs information about the syncing process
+        and the number of servers the bot is connected to.
+        """
         await self.bot.change_presence(activity=discord.Game(name="🔥 Wildfire Response MMORPG"))
         
         # Debug command tree state
@@ -188,12 +284,65 @@ class WildfireCommands(commands.Cog):
             
         logging.info(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
 
-    # Commands moved to setup() function
+    # Commands moved to setup() function. Docstrings for those are in the setup() function below.
+    # The original methods like `fire_command` here are commented out or removed in the actual
+    # file, so their docstrings are not needed here. Their functionality is now within
+    # the app command definitions in `setup`.
+
+    # @discord.app_commands.command(name="fire", description="🔥 Report a new wildfire incident")
     # async def fire_command(self, interaction: discord.Interaction):
-        """Create new wildfire incident."""
-        fire_data = await self.game.create_fire(interaction.guild.id, interaction.channel.id)
+    # """ This is an example of where a command docstring *would* go if it were a Cog method.
+    #     However, these commands are now defined in `setup`.
+    # """
+    #    fire_data = await self.game.create_fire(interaction.guild.id, interaction.channel.id)
+    #    embed = discord.Embed(
+    # ...
         
-        embed = discord.Embed(
+    @discord.app_commands.command(name="respond", description="🚒 Respond to active wildfire incident")
+    async def respond_command(self, interaction: discord.Interaction):
+        """
+        Allows a user to respond to an active wildfire incident.
+
+        This is a placeholder as the actual command is defined in `setup`.
+        If this Cog method were active, it would assign the interacting user
+        as a responder to an ongoing fire.
+
+        :param interaction: The Discord interaction object.
+        :type interaction: discord.Interaction
+        """
+        # Actual implementation is in setup()
+        await interaction.response.send_message("This command is handled by the dynamic setup.", ephemeral=True)
+
+    @discord.app_commands.command(name="firestatus", description="📊 Check status of active fires")
+    async def status_command(self, interaction: discord.Interaction):
+        """
+        Displays the status of current active wildfire incidents.
+
+        This is a placeholder as the actual command is defined in `setup`.
+        If this Cog method were active, it would fetch and show data about
+        ongoing fires.
+
+        :param interaction: The Discord interaction object.
+        :type interaction: discord.Interaction
+        """
+        # Actual implementation is in setup()
+        await interaction.response.send_message("This command is handled by the dynamic setup.", ephemeral=True)
+
+
+async def setup(bot: commands.Bot):
+    """
+    Sets up the Wildfire Bot by initializing and adding the `WildfireCommands` Cog
+    and defining application (slash) commands directly on the bot's command tree.
+
+    This approach is used for reliable command synchronization with Discord.
+    The commands defined here utilize the methods from an instance of `WildfireCommands` (Cog)
+    to interact with the game logic.
+
+    :param bot: The Discord bot instance.
+    :type bot: commands.Bot
+    """
+    # Add cog for event handlers and utilities
+    cog = WildfireCommands(bot)
             title="🔥 WILDFIRE INCIDENT REPORTED",
             description=f"New **{fire_data['type']} fire** detected requiring immediate response",
             color=0xFF4500
@@ -209,107 +358,20 @@ class WildfireCommands(commands.Cog):
             inline=False
         )
         
-        embed.add_field(
-            name="🚒 Response Commands",
-            value="• `/respond` - Join the firefighting response team\n"
-                  "• `/firestatus` - Check status of all active incidents\n"
-                  "• `/myrole` - View your current assignments",
-            inline=False
-        )
-        
-        embed.set_footer(text="Incident Command System • Educational Wildfire Simulation")
-        
-        await interaction.response.send_message(embed=embed)
-        await self.add_safe_reaction(interaction.message, "🔥")
-        
-    @discord.app_commands.command(name="respond", description="🚒 Respond to active wildfire incident")
-    async def respond_command(self, interaction: discord.Interaction):
-        """Assign player to active fire."""
-        active_fires = await self.game.get_active_fires(interaction.guild.id)
-        
-        if not active_fires:
-            await interaction.response.send_message(
-                "❌ No active fires requiring response. Use `/fire` to create an incident.",
-                ephemeral=True
-            )
-            return
-            
-        # Assign to first active fire (simplified for prototype)
-        fire = active_fires[0]
-        success = await self.game.assign_responder(
-            fire["id"],
-            interaction.user.id,
-            interaction.user.display_name
-        )
-        
-        if success:
-            embed = discord.Embed(
-                title="✅ RESPONDER ASSIGNED",
-                description=f"{interaction.user.display_name} deployed to **{fire['id']}**",
-                color=0x00AA00
-            )
-            embed.add_field(
-                name="Assignment Details",
-                value=f"**Role:** Firefighter\n"
-                      f"**Fire Type:** {fire['type'].title()}\n"
-                      f"**Current Team Size:** {fire['responder_count'] + 1}",
-                inline=False
-            )
-            await interaction.response.send_message(embed=embed)
-        else:
-            await interaction.response.send_message(
-                "❌ Unable to assign to incident. Try again.",
-                ephemeral=True
-            )
-            
-    @discord.app_commands.command(name="firestatus", description="📊 Check status of active fires")
-    async def status_command(self, interaction: discord.Interaction):
-        """Display current fire status."""
-        active_fires = await self.game.get_active_fires(interaction.guild.id)
-        
-        if not active_fires:
-            await interaction.response.send_message(
-                "📍 No active fires currently. All incidents contained or controlled.",
-                ephemeral=True
-            )
-            return
-            
-        embed = discord.Embed(
-            title="🔥 ACTIVE INCIDENTS STATUS BOARD",
-            description="Current wildfire incidents requiring response",
-            color=0xFF6B35
-        )
-        
-        for fire in active_fires[:6]:  # Limit to 6 fires for embed space
-            status_color = "🟢" if fire["containment"] > 75 else "🟡" if fire["containment"] > 25 else "🔴"
-            
-            embed.add_field(
-                name=f"{status_color} {fire['id'].upper()}",
-                value=f"**Type:** {fire['type'].title()}\n"
-                      f"**Size:** {fire['size_acres']} acres\n"
-                      f"**Containment:** {fire['containment']}%\n"
-                      f"**Responders:** {fire['responder_count']}\n"
-                      f"**Threat:** {fire['threat_level'].upper()}",
-                inline=True
-            )
-            
-        embed.set_footer(text=f"Incident Command System • {len(active_fires)} active incidents")
-        await interaction.response.send_message(embed=embed)
-
-
-async def setup(bot):
-    """
-    @brief Setup function for wildfire bot
-    @details Initialize and add wildfire commands cog and direct commands
-    """
-    # Add cog for event handlers and utilities
-    cog = WildfireCommands(bot)
     await bot.add_cog(cog)
     
     # Define commands directly on bot tree for reliable sync
     @bot.tree.command(name="fire", description="🔥 Report a new wildfire incident")
     async def fire_command(interaction: discord.Interaction):
-        """Create new wildfire incident."""
+        """
+        Reports a new wildfire incident in the current channel. (App Command)
+
+        This slash command initializes a new fire event using `WildfireGame.create_fire()`,
+        stores it, and sends an embed message to the channel with incident details.
+
+        :param interaction: The Discord interaction object from the slash command.
+        :type interaction: discord.Interaction
+        """
         fire_data = await cog.game.create_fire(interaction.guild.id, interaction.channel.id)
         
         # Convert fire_data to fire_status format for minimal embed
@@ -345,7 +407,17 @@ async def setup(bot):
     
     @bot.tree.command(name="respond", description="🚒 Respond to active wildfire incident")
     async def respond_command(interaction: discord.Interaction):
-        """Assign player to active fire."""
+        """
+        Allows a user to respond to an active wildfire incident. (App Command)
+
+        This slash command assigns the interacting user as a responder to the
+        earliest active fire in the server. It uses `WildfireGame.assign_responder()`
+        and `WildfireGame.get_active_fires()`. An embed message confirms
+        the assignment or informs if no active fires are available.
+
+        :param interaction: The Discord interaction object from the slash command.
+        :type interaction: discord.Interaction
+        """
         active_fires = await cog.game.get_active_fires(interaction.guild.id)
         
         if not active_fires:
@@ -392,7 +464,15 @@ async def setup(bot):
     
     @bot.tree.command(name="firestatus", description="📊 Check status of active fires")
     async def firestatus_command(interaction: discord.Interaction):
-        """Display current fire status."""
+        """
+        Displays the status of current active wildfire incidents. (App Command)
+
+        This slash command retrieves active fires using `WildfireGame.get_active_fires()`
+        and presents them in an embed message. If no fires are active, it informs the user.
+
+        :param interaction: The Discord interaction object from the slash command.
+        :type interaction: discord.Interaction
+        """
         active_fires = await cog.game.get_active_fires(interaction.guild.id)
         
         if not active_fires:
