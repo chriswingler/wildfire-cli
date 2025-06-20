@@ -1017,7 +1017,26 @@ class WildfireCommands(commands.Cog):
         self.game = WildfireGame()
         self.singleplayer_game = SingleplayerGame()
         self.auto_progression_task = None
-        
+
+        # Load admin user IDs for debug commands
+        admin_ids_str = os.getenv("ADMIN_USER_IDS", "")
+        if admin_ids_str:
+            self.admin_user_ids = [int(uid.strip()) for uid in admin_ids_str.split(',') if uid.strip().isdigit()]
+            if not self.admin_user_ids: # Handles case where string might be non-empty but contain no valid IDs
+                print("WARNING: ADMIN_USER_IDS was set but contained no valid numeric UIDs. Debug commands will not be usable.")
+                self.admin_user_ids = [] # Ensure it's an empty list
+            else:
+                print(f"Admin User IDs loaded: {self.admin_user_ids}")
+        else:
+            self.admin_user_ids = []
+            print("WARNING: No ADMIN_USER_IDS configured. Debug commands will not be usable by anyone.")
+
+    async def is_admin_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id not in self.admin_user_ids:
+            await interaction.response.send_message("❌ You are not authorized to use this debug command.", ephemeral=True)
+            return False
+        return True
+
     @commands.Cog.listener()
     async def on_ready(self):
         """Bot startup handler."""
@@ -1052,7 +1071,26 @@ class WildfireCommands(commands.Cog):
         # Start auto-progression background task
         if not self.auto_progression_task or self.auto_progression_task.done():
             self.auto_progression_task = asyncio.create_task(self._auto_progression_loop())
-    
+
+    @commands.Cog.listener()
+    async def on_app_command_error(self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+        if isinstance(error, discord.app_commands.CommandOnCooldown):
+            await interaction.response.send_message(
+                f"⏳ This command is on cooldown. Please try again in {error.retry_after:.1f} seconds.",
+                ephemeral=True
+            )
+        elif isinstance(error, discord.app_commands.MissingPermissions) or isinstance(error, discord.app_commands.BotMissingPermissions):
+            await interaction.response.send_message(
+                f"🚫 I don't have the necessary permissions to do that.",
+                ephemeral=True
+            )
+        else:
+            # Log other errors
+            print(f"Unhandled app command error: {error}") # Or use proper logging
+            # Optionally send a generic error message
+            # await interaction.response.send_message("An unexpected error occurred.", ephemeral=True)
+            pass # Or re-raise, or handle more specifically
+
     @commands.Cog.listener()
     async def on_message(self, message):
         """Handle typed tactical choices like '1', '2', '3'."""
@@ -1142,6 +1180,7 @@ class WildfireCommands(commands.Cog):
             
             await channel.send(message)
         
+    @discord.app_commands.checks.cooldown(1, 10.0, key=lambda i: i.user.id)
     @discord.app_commands.command(name="fire", description="Report a new wildfire incident")
     async def fire_command(self, interaction: discord.Interaction):
         """Create new wildfire incident - context-aware for DM vs Guild."""
@@ -1572,6 +1611,7 @@ class WildfireCommands(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
         
+    @discord.app_commands.checks.cooldown(1, 10.0, key=lambda i: i.user.id)
     @discord.app_commands.command(name="start", description="🚀 Begin new wildfire incident command scenario (DM only)")
     async def start_command(self, interaction: discord.Interaction):
         """Start compelling wildfire scenario with full simulation."""
@@ -1600,6 +1640,9 @@ class WildfireCommands(commands.Cog):
     @discord.app_commands.command(name="debugplayer2", description="🧪 [DEBUG] Simulate Player 2 for multiplayer testing")
     async def debug_player2_command(self, interaction: discord.Interaction):
         """Debug command to simulate Player 2 for testing multiplayer."""
+        if not await self.is_admin_check(interaction):
+            return
+
         if interaction.guild is None:
             await interaction.response.send_message("❌ Debug commands only work in guild channels", ephemeral=True)
             return
@@ -1644,6 +1687,9 @@ class WildfireCommands(commands.Cog):
     ])
     async def debug_p2_deploy_command(self, interaction: discord.Interaction, resource: str, count: int = 1):
         """Debug command to deploy resources as simulated Player 2."""
+        if not await self.is_admin_check(interaction):
+            return
+
         if interaction.guild is None:
             await interaction.response.send_message("❌ Debug commands only work in guild channels", ephemeral=True)
             return
@@ -1699,6 +1745,9 @@ class WildfireCommands(commands.Cog):
     @discord.app_commands.command(name="debugstatus", description="🧪 [DEBUG] Show detailed multiplayer debug info")
     async def debug_status_command(self, interaction: discord.Interaction):
         """Debug command to show detailed multiplayer state."""
+        if not await self.is_admin_check(interaction):
+            return
+
         if interaction.guild is None:
             await interaction.response.send_message("❌ Debug commands only work in guild channels", ephemeral=True)
             return
@@ -1748,6 +1797,9 @@ class WildfireCommands(commands.Cog):
     @discord.app_commands.command(name="debugclear", description="🧪 [DEBUG] Clear all guild fires for testing")
     async def debug_clear_command(self, interaction: discord.Interaction):
         """Debug command to clear all guild fires for clean testing."""
+        if not await self.is_admin_check(interaction):
+            return
+
         if interaction.guild is None:
             await interaction.response.send_message("❌ Debug commands only work in guild channels", ephemeral=True)
             return
