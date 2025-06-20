@@ -1,7 +1,7 @@
 import yaml
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Any, Union
+from typing import Dict, Any, Union, List # Ensure List is imported
 from pathlib import Path
 
 @dataclass
@@ -58,6 +58,7 @@ class DiscordEmbedColorCodes: # Added for discord config section
 class DiscordConfig: # Added for discord config section
     interaction_timeout: int
     embed_color_codes: DiscordEmbedColorCodes
+    indexing_skipped_channel_ids: List[str] = field(default_factory=list) # New field
 
 @dataclass
 class AppConfig: # Main config object holding game and discord configs
@@ -144,7 +145,8 @@ class ConfigManager:
 
         discord_config = DiscordConfig(
             interaction_timeout=discord_config_dict.get('interaction_timeout', 300),
-            embed_color_codes=embed_color_codes
+            embed_color_codes=embed_color_codes,
+            indexing_skipped_channel_ids=discord_config_dict.get('indexing_skipped_channel_ids', []) # Populate new field
         )
 
         return AppConfig(game=game_config, discord=discord_config)
