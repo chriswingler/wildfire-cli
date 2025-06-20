@@ -130,16 +130,28 @@ class FireGrid:
     """
     
     def __init__(self, size: int = 8):
+        """
+        Initializes the FireGrid.
+
+        :param size: The dimension of the square grid (e.g., 8 for an 8x8 grid).
+        :type size: int
+        """
         self.size = size
         self.grid: List[List[FireCell]] = []
         self.weather = WeatherConditions()
         self.operational_period = 1
         self.incident_start_time = datetime.now()
-        self.total_acres = size * size * 10  # Each cell = 10 acres
+        self.total_acres = size * size * 10  # Each cell represents 10 acres.
         self._initialize_grid()
         
     def _initialize_grid(self):
-        """Initialize grid with random terrain."""
+        """
+        Initializes the grid with FireCell objects, assigning terrain types
+        based on predefined weights.
+        """
+        # terrain_weights define the probability distribution for different terrain types.
+        # For example, FOREST has a 40% chance, GRASS 30%, etc.
+        # These weights are used to create a list from which random.choice picks.
         terrain_weights = {
             TerrainType.FOREST: 0.4,
             TerrainType.GRASS: 0.3,
@@ -216,45 +228,72 @@ class FireGrid:
     
     def _calculate_spread_probability(self, source: FireCell, target: FireCell, 
                                     dx: int, dy: int) -> float:
-        """Calculate probability of fire spreading to adjacent cell."""
-        base_prob = 0.3
+        """
+        Calculate probability of fire spreading from a source cell to a target adjacent cell.
+
+        The probability is influenced by several factors:
+        - Base probability: A starting chance of spread.
+        - Target terrain: Different terrains have multipliers (e.g., grass spreads faster).
+        - Wind: Spreading with wind increases probability, against wind decreases it.
+        - Target fuel load: Higher fuel load in the target cell increases probability.
+        - Temperature: Higher temperatures increase probability.
+        - Humidity: Lower humidity increases probability.
+        The final probability is a combination of these factors and is capped.
+
+        :param source: The FireCell object that is currently burning.
+        :type source: FireCell
+        :param target: The FireCell object that is a candidate for ignition.
+        :type target: FireCell
+        :param dx: The difference in x-coordinate from source to target (e.g., -1, 0, 1).
+        :type dx: int
+        :param dy: The difference in y-coordinate from source to target (e.g., -1, 0, 1).
+        :type dy: int
+        :return: The calculated spread probability (0.0 to 0.9).
+        :rtype: float
+        """
+        base_prob = 0.3  # Initial base probability for spread.
         
-        # Terrain effects
+        # Terrain effects: Multipliers based on the target cell's terrain type.
+        # Grass burns easily, Urban areas might be more resistant initially or channel fire differently.
         terrain_multipliers = {
-            TerrainType.GRASS: 1.5,  # Fast spread
-            TerrainType.FOREST: 1.0,  # Normal spread
-            TerrainType.URBAN: 0.8,   # Slower spread but high intensity
-            TerrainType.RIDGE: 1.2,   # Uphill spread acceleration
-            TerrainType.VALLEY: 0.7   # Natural barriers
+            TerrainType.GRASS: 1.5,  # Fast spread due to fine fuels.
+            TerrainType.FOREST: 1.0,  # Normal spread rate.
+            TerrainType.URBAN: 0.8,   # Slower initial spread, but implies high value and potential for intense burning.
+            TerrainType.RIDGE: 1.2,   # Fire tends to spread faster uphill.
+            TerrainType.VALLEY: 0.7   # Valleys can act as barriers or channel wind, here simplified to slower.
         }
-        
         prob = base_prob * terrain_multipliers.get(target.terrain, 1.0)
         
-        # Weather effects
+        # Wind effects: Wind direction and speed significantly impact spread.
+        # Spread is more likely if aligned with wind direction, less likely against it.
         wind_directions = {
             "N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1),
             "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1)
         }
-        
         wind_dx, wind_dy = wind_directions[self.weather.wind_direction]
         
-        # If spread direction matches wind direction
-        if dx == wind_dx and dy == wind_dy:
-            prob *= (1 + self.weather.wind_speed / 25.0)
-        elif dx == -wind_dx and dy == -wind_dy:
-            prob *= 0.5  # Against wind
+        if dx == wind_dx and dy == wind_dy:  # Spreading in the same direction as the wind.
+            prob *= (1 + self.weather.wind_speed / 25.0)  # Increase prob based on wind speed (max speed 25mph).
+        elif dx == -wind_dx and dy == -wind_dy:  # Spreading directly against the wind.
+            prob *= 0.5  # Significantly reduce probability.
             
-        # Fuel load effect
+        # Fuel load effect: Higher fuel load in the target cell means more material to burn.
+        # Normalized by a factor (e.g., 5.0) to scale its impact.
         prob *= (target.fuel_load / 5.0)
         
-        # Temperature and humidity effects
-        prob *= (self.weather.temperature / 100.0)
-        prob *= (1.0 - self.weather.humidity / 100.0)
+        # Temperature and humidity effects: Higher temperature and lower humidity favor fire spread.
+        # Normalized by 100 to represent them as factors.
+        prob *= (self.weather.temperature / 100.0)  # Higher temp increases prob.
+        prob *= (1.0 - self.weather.humidity / 100.0)  # Lower humidity increases prob.
         
-        return min(prob, 0.9)  # Cap at 90%
+        # Final probability is capped to prevent certainty and keep some randomness.
+        return min(prob, 0.9)
     
     def _age_fires(self):
-        """Age existing fires and natural burnout."""
+        """
+        Ages existing fires. If a fire has been burning for a duration determined
+        by its fuel_load, it transitions to the BURNED state (natural burnout).
+        """
         for y in range(self.size):
             for x in range(self.size):
                 cell = self.grid[y][x]
@@ -262,15 +301,25 @@ class FireGrid:
                 if cell.fire_state == FireState.BURNING and cell.ignition_time:
                     burn_time = datetime.now() - cell.ignition_time
                     
-                    # Natural burnout based on fuel load
-                    burnout_hours = cell.fuel_load * 2  # 2 hours per fuel unit
+                    # Natural burnout condition:
+                    # Burnout time is proportional to fuel_load.
+                    # Here, each unit of fuel_load is assumed to burn for approx. 2 hours.
+                    burnout_hours = cell.fuel_load * 2
                     if burn_time.total_seconds() / 3600 > burnout_hours:
                         cell.burn_out()
     
     def apply_suppression(self, suppression_points: int):
-        """Apply suppression efforts to burning cells."""
+        """
+        Applies suppression efforts to currently burning cells.
+
+        Suppression points (representing firefighting resources) are distributed
+        among all burning cells. The probability of containing a cell depends
+        on the points allocated to it and the terrain difficulty.
+
+        :param suppression_points: Total suppression points available for this turn.
+        :type suppression_points: int
+        """
         burning_cells = []
-        
         for y in range(self.size):
             for x in range(self.size):
                 cell = self.grid[y][x]
@@ -278,28 +327,39 @@ class FireGrid:
                     burning_cells.append(cell)
         
         if not burning_cells:
-            return
+            return # No active fires to suppress.
             
-        # Distribute suppression effort
+        # Distribute suppression effort evenly among all burning cells.
+        # Each burning cell gets at least 1 point if points are available.
         points_per_cell = max(1, suppression_points // len(burning_cells))
         
         for cell in burning_cells:
-            # Containment probability based on effort and conditions
+            # Base containment probability increases with more points allocated to the cell.
+            # Capped at 0.8 to ensure containment isn't guaranteed solely by points.
             contain_prob = min(0.8, points_per_cell * 0.1)
             
-            # Terrain difficulty factors
+            # Terrain difficulty factors modify containment probability.
+            # Some terrains are harder to operate in or have more resilient structures.
             if cell.terrain == TerrainType.URBAN:
-                contain_prob *= 0.6  # Urban fires harder to contain
+                contain_prob *= 0.6  # Urban environments can be complex and challenging for suppression.
             elif cell.terrain == TerrainType.VALLEY:
-                contain_prob *= 1.3  # Better access
+                contain_prob *= 1.3  # Valleys might offer better access or tactical advantages.
             elif cell.terrain == TerrainType.RIDGE:
-                contain_prob *= 0.8  # Difficult access
+                contain_prob *= 0.8  # Ridges can be difficult to access and work on.
                 
             if random.random() < contain_prob:
-                cell.contain()
+                cell.contain() # Cell is successfully contained.
     
     def get_fire_statistics(self) -> Dict:
-        """Get current fire statistics for reporting."""
+        """
+        Calculates and returns current statistics about the fire situation on the grid.
+
+        This includes the number of acres burned/burning/contained, overall containment percentage,
+        cell counts by state, weather information, operational period, and incident duration.
+
+        :return: A dictionary containing various fire statistics.
+        :rtype: Dict
+        """
         burning_count = 0
         burned_count = 0
         contained_count = 0
