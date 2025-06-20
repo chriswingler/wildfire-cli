@@ -10,3 +10,7 @@ game:
   progression:
     button_timeout_seconds: 60  # Shorter timeouts for testing
     auto_progression_seconds: 5 # Faster fire progression
+bot:
+  moderation:
+    alert_channel_id: 123456789012345678 # Replace with actual dev channel ID
+    exempt_role_ids: [] # e.g., [123456789012345678, 987654321098765432]

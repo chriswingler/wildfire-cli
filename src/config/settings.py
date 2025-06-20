@@ -59,10 +59,20 @@ class DiscordConfig: # Added for discord config section
     interaction_timeout: int
     embed_color_codes: DiscordEmbedColorCodes
 
+from typing import List
+
+# ... (other dataclasses remain the same)
+
 @dataclass
-class AppConfig: # Main config object holding game and discord configs
+class ModerationConfig:
+    alert_channel_id: Union[int, None] = None
+    exempt_role_ids: List[int] = field(default_factory=list)
+
+@dataclass
+class AppConfig: # Main config object holding game, discord, and moderation configs
     game: GameConfig
     discord: DiscordConfig
+    moderation: ModerationConfig = field(default_factory=ModerationConfig)
 
 
 class ConfigManager:
@@ -108,7 +118,9 @@ class ConfigManager:
 
     def _dict_to_app_config(self, config_dict: dict) -> AppConfig:
         """Convert configuration dictionary to typed AppConfig dataclass."""
-        game_config_dict = config_dict['game']
+
+        # Game Config processing (existing)
+        game_config_dict = config_dict.get('game', {}) # Use .get for safety
 
         resource_costs = ResourceCosts(**game_config_dict['economy']['resource_costs'])
         economy = GameEconomy(
@@ -140,14 +152,46 @@ class ConfigManager:
 
         discord_config_dict = config_dict.get('discord', {})
         embed_colors_data = discord_config_dict.get('embed_color_codes', {})
-        embed_color_codes = DiscordEmbedColorCodes(**embed_colors_data)
+        embed_color_codes = DiscordEmbedColorCodes(**embed_colors_data) # Assumes EmbedColorCodes takes kwargs
 
         discord_config = DiscordConfig(
-            interaction_timeout=discord_config_dict.get('interaction_timeout', 300),
+            interaction_timeout=discord_config_dict.get('interaction_timeout', 300), # Default if not in YAML
             embed_color_codes=embed_color_codes
         )
 
-        return AppConfig(game=game_config, discord=discord_config)
+        # Moderation Config processing (new)
+        # Path in YAML: bot.moderation.alert_channel_id
+        # We expect config_dict to have a 'bot' key from the YAML structure.
+        bot_config_dict = config_dict.get('bot', {})
+        moderation_config_dict = bot_config_dict.get('moderation', {})
+        alert_channel_id_val = moderation_config_dict.get('alert_channel_id')
+
+        parsed_alert_channel_id = None
+        if alert_channel_id_val is not None:
+            try:
+                parsed_alert_channel_id = int(alert_channel_id_val)
+            except ValueError:
+                # Use logging module if available and configured, otherwise print
+                logging.warning(f"CONFIG WARNING: bot.moderation.alert_channel_id ('{alert_channel_id_val}') is not a valid integer. Moderator alerts may fail. Setting to None.")
+
+        # Load exempt_role_ids
+        raw_exempt_ids = moderation_config_dict.get('exempt_role_ids', [])
+        parsed_exempt_ids = []
+        if isinstance(raw_exempt_ids, list):
+            for role_id in raw_exempt_ids:
+                try:
+                    parsed_exempt_ids.append(int(role_id))
+                except ValueError:
+                    logging.warning(f"CONFIG WARNING: Invalid role ID '{role_id}' in bot.moderation.exempt_role_ids. Skipping.")
+        else:
+            logging.warning("CONFIG WARNING: bot.moderation.exempt_role_ids is not a list in config. Skipping all exempt roles.")
+
+        moderation_config = ModerationConfig(
+            alert_channel_id=parsed_alert_channel_id,
+            exempt_role_ids=parsed_exempt_ids
+        )
+
+        return AppConfig(game=game_config, discord=discord_config, moderation=moderation_config)
 
 try:
     config_manager = ConfigManager()
