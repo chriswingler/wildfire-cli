@@ -16,6 +16,10 @@ from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
 from config.settings import config
+from src.analysis.sentiment_analyzer import SentimentAnalyzer
+from src.analysis.topic_modeler import TopicModeler
+from src.analysis.insights_engine import InsightsEngine
+from src.analysis.dashboard import AnalysisDashboard
 
 
 class TeamTacticalChoicesView(discord.ui.View):
@@ -1014,6 +1018,14 @@ class WildfireCommands(commands.Cog):
         self.game = WildfireGame()
         self.singleplayer_game = SingleplayerGame()
         self.auto_progression_task = None
+        self.sentiment_analyzer = SentimentAnalyzer()
+        self.topic_modeler = TopicModeler()
+        self.insights_engine = InsightsEngine(sentiment_analyzer=self.sentiment_analyzer, topic_modeler=self.topic_modeler)
+        self.analysis_dashboard = AnalysisDashboard(
+            sentiment_analyzer=self.sentiment_analyzer,
+            topic_modeler=self.topic_modeler,
+            insights_engine=self.insights_engine
+        )
 
         # Load admin user IDs for debug commands
         admin_ids_str = os.getenv("ADMIN_USER_IDS", "")
@@ -2241,6 +2253,119 @@ Use `/stop` to see your performance report."""
                 print(f"Error in auto-progression loop: {e}")
                 await asyncio.sleep(30)  # Wait longer on error
 
+    @discord.app_commands.command(name="sentiment-report", description="🔍 Generate sentiment analysis report for a channel or server.")
+    @discord.app_commands.describe(target="Analyze 'channel' or 'server'. Default is channel.", scope_id="Optional: Channel or Server ID (defaults to current).")
+    @discord.app_commands.checks.has_permissions(manage_messages=True) # Example permission
+    async def sentiment_report_command(self, interaction: discord.Interaction, target: str = "channel", scope_id: str = None):
+        if not await self.is_admin_check(interaction): # Placeholder for mod check
+             await interaction.response.send_message("You need administrator permissions for this command.", ephemeral=True)
+             return
+
+        await interaction.response.defer(ephemeral=True)
+        # Placeholder: Fetch messages for the target scope
+        # For now, using dummy data for the report generation
+        dummy_health_data = self.sentiment_analyzer.monitor_community_sentiment_health([]) # Pass empty list
+        report = self.analysis_dashboard.generate_sentiment_report(dummy_health_data)
+        await interaction.followup.send(f"```\n{report}\n```")
+
+    @discord.app_commands.command(name="topic-trends", description="📈 Show trending discussion topics.")
+    @discord.app_commands.describe(target="Analyze 'channel' or 'server'. Default is channel.", scope_id="Optional: Channel or Server ID (defaults to current).")
+    @discord.app_commands.checks.has_permissions(manage_messages=True)
+    async def topic_trends_command(self, interaction: discord.Interaction, target: str = "channel", scope_id: str = None):
+        if not await self.is_admin_check(interaction): # Placeholder for mod check
+             await interaction.response.send_message("You need administrator permissions for this command.", ephemeral=True)
+             return
+        await interaction.response.defer(ephemeral=True)
+        # Placeholder: Fetch messages
+        dummy_trending_data = self.topic_modeler.identify_trending_discussions([]) # Pass empty list
+        report = self.analysis_dashboard.generate_topic_trend_summary(dummy_trending_data)
+        await interaction.followup.send(f"```\n{report}\n```")
+
+    @discord.app_commands.command(name="conversation-health", description="🩺 Get discussion quality metrics.")
+    @discord.app_commands.describe(target="Analyze 'channel' or 'server'. Default is channel.", scope_id="Optional: Channel or Server ID (defaults to current).")
+    @discord.app_commands.checks.has_permissions(manage_messages=True)
+    async def conversation_health_command(self, interaction: discord.Interaction, target: str = "channel", scope_id: str = None):
+        if not await self.is_admin_check(interaction): # Placeholder for mod check
+             await interaction.response.send_message("You need administrator permissions for this command.", ephemeral=True)
+             return
+        await interaction.response.defer(ephemeral=True)
+        # Placeholder: Fetch messages and participant data
+        # Dummy data for the report generation
+        dummy_sentiment_health = self.sentiment_analyzer.monitor_community_sentiment_health([])
+        dummy_topic_trends = self.topic_modeler.identify_trending_discussions([])
+        # For score_conversation_quality, it expects messages and participant count.
+        # Here, we'll generate a report based on overall health, not specific conversation.
+        # So, we pass empty quality_scores or a general score.
+        # This part might need refinement based on how InsightsEngine.score_conversation_quality is used for a channel/server.
+        # For now, let's assume a general health insight.
+        report = self.analysis_dashboard.generate_community_health_insights(dummy_sentiment_health, dummy_topic_trends, [])
+        await interaction.followup.send(f"```\n{report}\n```")
+
+    @discord.app_commands.command(name="community-insights", description="💡 Get comprehensive community analysis summary.")
+    @discord.app_commands.checks.has_permissions(manage_messages=True)
+    async def community_insights_command(self, interaction: discord.Interaction):
+        if not await self.is_admin_check(interaction): # Placeholder for mod check
+             await interaction.response.send_message("You need administrator permissions for this command.", ephemeral=True)
+             return
+        await interaction.response.defer(ephemeral=True)
+        # This would be a more comprehensive report, combining various pieces of data.
+        # Placeholder:
+        s_data = self.sentiment_analyzer.monitor_community_sentiment_health([])
+        t_data = self.topic_modeler.identify_trending_discussions([])
+        # Assuming no specific conversation quality scores for a general server insight here.
+        health_report = self.analysis_dashboard.generate_community_health_insights(s_data, t_data, [])
+        report = f"--- Comprehensive Community Insights ---\n\n"
+        report += self.analysis_dashboard.generate_sentiment_report(s_data) + "\n\n"
+        report += self.analysis_dashboard.generate_topic_trend_summary(t_data) + "\n\n"
+        report += "Further detailed conversation quality metrics would require specific conversation analysis.\n"
+        report += "--- End of Summary ---"
+        await interaction.followup.send(f"```\n{report}\n```")
+
+    @discord.app_commands.command(name="analyze-user", description="👤 Analyze a specific user's communication patterns.")
+    @discord.app_commands.describe(user="The user to analyze.")
+    @discord.app_commands.checks.has_permissions(manage_messages=True)
+    async def analyze_user_command(self, interaction: discord.Interaction, user: discord.User):
+        if not await self.is_admin_check(interaction): # Placeholder for mod check
+            await interaction.response.send_message("You need administrator permissions for this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        # Placeholder: Fetch message history for the specified user.
+        # This would require iterating through channels or having a message index.
+        # For now, using dummy data.
+
+        # Dummy data for user analysis
+        user_id_str = str(user.id) # User ID for map keys
+
+        # Simulate fetching user's conversations (this is highly simplified)
+        # In a real scenario, this would involve querying a database or message store.
+        user_conversations_sample = {
+            user_id_str: [
+                ["Hello, I have a question about fire.", "How do I use the new tool?"],
+                ["This game is great!", "I love the new fire effects."],
+                ["I think there's a bug with the water tanker."]
+            ]
+        }
+
+        # Sentiment analysis of user's messages (simplified)
+        user_messages_flat = [msg for convo in user_conversations_sample.get(user_id_str, []) for msg in convo]
+        overall_user_sentiment = "Neutral"
+        if user_messages_flat:
+            overall_user_sentiment = self.sentiment_analyzer.track_conversation_mood(user_messages_flat).capitalize()
+
+        # Topic analysis of user's messages
+        user_expertise_map = self.insights_engine.map_community_expertise(user_conversations_sample)
+        user_topics = user_expertise_map.get(user_id_str, ["N/A"])
+
+        report = f"--- User Analysis Report for {user.display_name} ---\n"
+        report += f"User ID: {user.id}\n"
+        report += f"Overall Sentiment: {overall_user_sentiment}\n"
+        report += f"Primary Topics of Discussion: {', '.join(topic.replace('_', ' ').title() for topic in user_topics)}\n"
+        # More detailed analysis would go here (e.g., activity, common phrases, escalation frequency)
+        report += "Note: This is a basic analysis based on placeholder data.\n"
+        report += "--- End of Report ---"
+
+        await interaction.followup.send(f"```\n{report}\n```")
 
 async def setup_wildfire_commands(bot):
     """
