@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import asyncio
 import os
 import logging
+from database import get_db_connection, create_tables # Added import
 from discord_wildfire import setup_wildfire_commands
 from aiohttp import web
 
@@ -46,22 +47,44 @@ async def start_health_server():
     logging.info("Health check server started on port 8080")
 
 async def main():
-    """! 
-    @brief Main asynchronous entry point for the bot
-    @details Handles:
+    """
+    Main asynchronous entry point for the bot.
+    Handles:
+    - Database initialization
     - Cog setup initialization
     - Bot startup with environment token
     - Health check server for DigitalOcean
     - Event loop management
     """
-    # Setup Discord bot with Sprint 2 singleplayer mode
-    await setup_wildfire_commands(bot)
+    db_conn = None
+    try:
+        logging.info("Initializing database...")
+        db_conn = await get_db_connection()
+        await create_tables(db_conn)
+        logging.info("Database initialized successfully.")
+        bot.db_conn = db_conn  # Make DB connection available to cogs
+
+        # Load moderation cogs
+        try:
+            await bot.load_extension("src.moderation.appeal_system")
+            logging.info("AppealSystem cog loaded successfully.")
+        except Exception as e:
+            logging.error(f"Failed to load AppealSystem cog: {e}", exc_info=True)
+
+        await setup_wildfire_commands(bot) # Existing cog setup
     
-    # Start both health server and Discord bot concurrently
-    await asyncio.gather(
-        start_health_server(),
-        bot.start(os.getenv("DISCORD_TOKEN"))
-    )
+        # Start both health server and Discord bot concurrently
+        await asyncio.gather(
+            start_health_server(),
+            bot.start(os.getenv("DISCORD_TOKEN"))
+        )
+    except Exception as e:
+        logging.error(f"An error occurred during bot startup or runtime: {e}", exc_info=True)
+    finally:
+        if db_conn:
+            logging.info("Closing database connection...")
+            await db_conn.close()
+            logging.info("Database connection closed.")
 
 if __name__ == "__main__":
     asyncio.run(main())
