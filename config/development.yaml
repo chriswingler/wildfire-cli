@@ -1,0 +1,12 @@
+# Faster progression for testing
+game:
+  economy:
+    starting_budget: 50000      # More money for testing
+    resource_costs:
+      hand_crews: 500           # Cheaper for faster testing
+      engines: 1000
+      dozers: 1500
+      air_tankers: 3000
+  progression:
+    button_timeout_seconds: 60  # Shorter timeouts for testing
+    auto_progression_seconds: 5 # Faster fire progression
