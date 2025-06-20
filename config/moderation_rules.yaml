@@ -1,0 +1,76 @@
+rule_categories:
+  - name: "Spam Detection"
+    rules:
+      repeated_text:
+        description: "Detects users sending the same or very similar messages multiple times."
+        enabled: true
+        threshold: 0.85 # Example: Jaccard similarity or other metric
+        severity_score: 5
+        actions:
+          - type: "warning"
+            params:
+              message: "Please avoid sending repetitive messages."
+          - type: "timeout"
+            params:
+              duration_seconds: 300
+              reason: "Spamming: Repeated text"
+      excessive_mentions:
+        description: "Flags messages with an excessive number of user mentions."
+        enabled: true
+        threshold: 5 # Number of mentions
+        severity_score: 6
+        actions:
+          - type: "delete_message"
+          - type: "warning"
+            params:
+              message: "Please avoid mentioning too many users in a single message."
+  - name: "Toxicity Filter"
+    rules:
+      severe_toxicity:
+        description: "Detects messages with high levels of toxic language."
+        enabled: true
+        threshold: 0.9 # LLM confidence score
+        severity_score: 10
+        actions:
+          - type: "delete_message"
+          - type: "warning"
+            params:
+              message: "Your message was removed due to severe toxicity."
+          - type: "ban" # Example of a more severe action
+            params:
+              reason: "Severe toxicity"
+      insults:
+        description: "Detects direct insults or personal attacks."
+        enabled: true
+        threshold: 0.75 # LLM confidence score
+        severity_score: 7
+        actions:
+          - type: "delete_message"
+          - type: "warning"
+            params:
+              message: "Personal insults are not allowed. Please be respectful."
+  - name: "Off-Topic Discussion"
+    rules:
+      general_off_topic:
+        description: "Flags discussions that deviate significantly from channel topics (if defined)."
+        enabled: false # Disabled by default
+        threshold: 0.6 # LLM confidence score for relevance
+        severity_score: 3
+        actions:
+          - type: "warning"
+            params:
+              message: "Please try to keep discussions relevant to the channel's topic."
+  - name: "Harassment" # Corrected from "harrassment" in issue
+    rules:
+      targeted_harassment:
+        description: "Detects sustained, targeted harassment of individuals."
+        enabled: true
+        threshold: 0.8 # Requires more complex logic, placeholder threshold
+        severity_score: 9
+        actions:
+          - type: "warning"
+          - type: "timeout"
+            params:
+              duration_seconds: 86400 # 1 day
+              reason: "Targeted harassment"
+          - type: "report_to_moderators" # Custom action type

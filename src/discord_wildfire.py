@@ -16,6 +16,11 @@ from incident_reports import IncidentReportGenerator
 from ui.hud_components import HUDComponents, HUDColors, HUDEmojis
 import asyncio
 from config.settings import config
+from src.database.moderation_db import ModerationDB
+from src.moderation.rule_engine import RuleEngine, RuleAction
+from src.moderation.content_analyzer import ContentAnalyzer
+from src.moderation.violation_detector import ViolationDetector
+from src.utilities import CooldownManager
 
 
 class TeamTacticalChoicesView(discord.ui.View):
@@ -1015,6 +1020,13 @@ class WildfireCommands(commands.Cog):
         self.singleplayer_game = SingleplayerGame()
         self.auto_progression_task = None
 
+        # Moderation system setup
+        self.moderation_db = ModerationDB("wildfire_moderation.sqlite3")
+        self.rule_engine = RuleEngine() # Uses default config path
+        self.content_analyzer = ContentAnalyzer(self.rule_engine)
+        self.violation_detector = ViolationDetector(self.rule_engine, self.content_analyzer, self.moderation_db)
+        self.cooldown_manager = CooldownManager() # Instantiate CooldownManager
+
         # Load admin user IDs for debug commands
         admin_ids_str = os.getenv("ADMIN_USER_IDS", "")
         if admin_ids_str:
@@ -1064,6 +1076,13 @@ class WildfireCommands(commands.Cog):
             print(f"Failed to sync commands: {e}")
             
         print(f"🔥 Wildfire bot online in {len(self.bot.guilds)} servers")
+
+        # Initialize Moderation DB Schema
+        try:
+            await self.moderation_db.initialize_schema()
+            print("🔥 Moderation database schema initialized.")
+        except Exception as e:
+            print(f"🚨 Failed to initialize moderation database schema: {e}")
         
         # Start auto-progression background task
         if not self.auto_progression_task or self.auto_progression_task.done():
@@ -1089,33 +1108,127 @@ class WildfireCommands(commands.Cog):
             pass # Or re-raise, or handle more specifically
 
     @commands.Cog.listener()
-    async def on_message(self, message):
-        """Handle typed tactical choices like '1', '2', '3'."""
-        # Ignore bot messages and guild messages
-        if message.author.bot or message.guild is not None:
+    async def on_message(self, message: discord.Message):
+        """Handle incoming messages for moderation checks and game interactions."""
+        if message.author.bot:
             return
-            
-        # Check if user has active incident
-        user_state = self.singleplayer_game.get_user_state(message.author.id)
-        if user_state["game_phase"] != "active":
-            return
-            
-        # Handle numbered choices
-        if message.content.strip() in ["1", "1️⃣"]:
-            result = self.singleplayer_game.deploy_resources(message.author.id, "hand_crews", 1)
-            await self._send_choice_response(message.channel, "Ground Crews", result, message.author.id)
-        elif message.content.strip() in ["2", "2️⃣"]:
-            result = self.singleplayer_game.deploy_resources(message.author.id, "air_tankers", 1)
-            await self._send_choice_response(message.channel, "Air Support", result, message.author.id)
-        elif message.content.strip() in ["3", "3️⃣"]:
-            result = self.singleplayer_game.deploy_resources(message.author.id, "engines", 1)
-            await self._send_choice_response(message.channel, "Engine Company", result, message.author.id)
-        elif message.content.strip() in ["4", "4️⃣"]:
-            result = self.singleplayer_game.deploy_resources(message.author.id, "dozers", 1)
-            await self._send_choice_response(message.channel, "Dozer", result, message.author.id)
+
+        author_id_str = str(message.author.id)
+        guild_id_str = str(message.guild.id) if message.guild else None
+
+        # Moderation Cooldown Check (only for guild messages)
+        if message.guild and not self.cooldown_manager.check_moderation_cooldown(author_id_str, "send_message_ban"):
+            # User is on a "send_message_ban" (timeout/mute) cooldown.
+            # Silently ignore their message, or you could delete it and/or notify them.
+            # For now, let's try to delete it and send a DM.
+            try:
+                await message.delete()
+                remaining_cooldown = self.cooldown_manager.get_active_moderation_cooldown_duration(author_id_str, "send_message_ban")
+                if remaining_cooldown:
+                    await message.author.send(f"You are currently timed out and cannot send messages in {message.guild.name}. Time remaining: {remaining_cooldown // 60} minutes.", delete_after=60) # pylint: disable=line-too-long
+            except discord.Forbidden:
+                print(f"Could not delete message or DM user {author_id_str} due to permissions (timeout active).")
+            except discord.NotFound:
+                pass # Message already deleted
+            return # Stop further processing of this message
+
+        # Moderation Violation Check (primarily for guild messages)
+        if message.guild and message.content and guild_id_str:
+            try:
+                actions_to_take: List[RuleAction] = await self.violation_detector.check_message_for_violations(
+                    message_content=message.content,
+                    guild_id=guild_id_str,
+                    user_id=author_id_str,
+                    message_id=str(message.id),
+                    channel_id=str(message.channel.id)
+                )
+
+                if actions_to_take:
+                    print(f"🚨 Moderation actions for message {message.id} by {message.author.name}: {actions_to_take}")
+                    for action in actions_to_take:
+                        if action.type == "warning" and action.params and "message" in action.params:
+                            try:
+                                await message.channel.send(f"{message.author.mention}: {action.params['message']}")
+                            except discord.Forbidden:
+                                print(f"Could not send warning to channel {message.channel.id} in guild {guild_id_str}")
+
+                        elif action.type == "delete_message":
+                            try:
+                                await message.delete()
+                                print(f"Deleted message {message.id} by {message.author.name} due to rule violation.")
+                            except discord.Forbidden:
+                                print(f"Could not delete message {message.id} in guild {guild_id_str}")
+                            except discord.NotFound:
+                                print(f"Message {message.id} not found, could not delete.")
+
+                        elif action.type == "timeout":
+                            base_duration_seconds = action.params.get("duration_seconds", 60) # Default to 60s
+
+                            # Progressive Timeout Logic
+                            user_status = await self.moderation_db.get_user_violation_status(guild_id_str, author_id_str)
+                            warning_level = user_status.get("warning_level", 0) if user_status else 0
+
+                            timeout_multiplier = 1
+                            if warning_level == 1:
+                                timeout_multiplier = 1 # Base duration
+                            elif warning_level == 2:
+                                timeout_multiplier = 2
+                            elif warning_level >= 3:
+                                timeout_multiplier = 5 # Max multiplier or fixed longer duration
+
+                            actual_duration_seconds = base_duration_seconds * timeout_multiplier
+
+                            # Ensure there's a maximum timeout duration from config if needed
+                            # max_timeout = config.moderation.max_timeout_seconds (example)
+                            # actual_duration_seconds = min(actual_duration_seconds, max_timeout)
+
+                            await self.cooldown_manager.apply_moderation_cooldown(author_id_str, "send_message_ban", actual_duration_seconds)
+                            timeout_reason = action.params.get("reason", "Violating server rules.")
+
+                            try:
+                                # Try to apply Discord's native timeout if permissions allow
+                                if message.guild.me.guild_permissions.moderate_members:
+                                    await message.author.timeout(timedelta(seconds=actual_duration_seconds), reason=timeout_reason)
+                                    await message.channel.send(f"{message.author.mention} has been timed out for {actual_duration_seconds // 60} minutes. Reason: {timeout_reason}")
+                                else:
+                                    # Fallback to custom cooldown message if bot can't apply native timeout
+                                    await message.channel.send(f"{message.author.mention} has been muted for {actual_duration_seconds // 60} minutes due to: {timeout_reason}. (Bot managed)")
+                                    await message.author.send(f"You have been timed out from {message.guild.name} for {actual_duration_seconds // 60} minutes. Reason: {timeout_reason}")
+                            except discord.Forbidden:
+                                print(f"Could not apply timeout or DM user {author_id_str} in guild {guild_id_str}. Bot may lack 'Moderate Members' permission or user is higher role.")
+                                # Send a message to channel indicating custom mute if native timeout failed
+                                await message.channel.send(f"{message.author.mention} has been muted (custom) for {actual_duration_seconds // 60} minutes due to: {timeout_reason}. Please respect the rules.")
+                            except discord.HTTPException as e:
+                                print(f"Failed to apply native timeout for {author_id_str}: {e}")
+                                await message.channel.send(f"{message.author.mention} has been muted (custom) for {actual_duration_seconds // 60} minutes due to: {timeout_reason}. (Native timeout failed)")
+
+
+            except Exception as e:
+                print(f"Error during message moderation check: {e}")
+
+        # Game Interaction Logic (primarily for DMs as per original structure)
+        if message.guild is None: # Original logic for DM-based game interaction
+            # Check if user has active incident
+            user_state = self.singleplayer_game.get_user_state(message.author.id)
+            if user_state["game_phase"] != "active":
+                return
+
+            # Handle numbered choices for the game
+            if message.content.strip() in ["1", "1️⃣"]:
+                result = self.singleplayer_game.deploy_resources(message.author.id, "hand_crews", 1)
+                await self._send_choice_response(message.channel, "Ground Crews", result, message.author.id)
+            elif message.content.strip() in ["2", "2️⃣"]:
+                result = self.singleplayer_game.deploy_resources(message.author.id, "air_tankers", 1)
+                await self._send_choice_response(message.channel, "Air Support", result, message.author.id)
+            elif message.content.strip() in ["3", "3️⃣"]:
+                result = self.singleplayer_game.deploy_resources(message.author.id, "engines", 1)
+                await self._send_choice_response(message.channel, "Engine Company", result, message.author.id)
+            elif message.content.strip() in ["4", "4️⃣"]:
+                result = self.singleplayer_game.deploy_resources(message.author.id, "dozers", 1)
+                await self._send_choice_response(message.channel, "Dozer", result, message.author.id)
     
     async def _send_choice_response(self, channel, resource_name, result, user_id):
-        """Send response for typed tactical choice."""
+        """Send response for typed tactical choice (game-specific)."""
         if result["success"]:
             # Show auto-progression result if it happened
             auto = result.get("auto_progression")
