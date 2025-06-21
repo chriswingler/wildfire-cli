@@ -1578,7 +1578,7 @@ class WildfireCommands(commands.Cog):
                 
                 status_text = (
                     f"**Size:** {current_status['size_acres']} acres\n"
-                    f"**Containment:** {current_status['containment']}%\n"
+                    f"**Containment:** {current_status['containment']}%n"
                     f"**Responders:** {len(responder_names)}\n"
                     f"**Team:** {', '.join(responder_names) if responder_names else 'None'}"
                 )
